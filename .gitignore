@@ -1,0 +1,8 @@
+# dsh/ 是独立 clone 的外部依赖（SHA 固定于 DEPENDENCIES.md），不纳入本仓库跟踪
+dsh/
+
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
