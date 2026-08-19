@@ -34,8 +34,20 @@
 ## 版本固定总则
 
 DSH（`dsh/`，固定 commit SHA）与 ShopSimulator（`environment/ShopSimulator/`，
-固定 source commit）是本项目仅有的两个运行时依赖，**两者均固定版本**。
+固定 source commit）是本项目的**固定核心源码依赖**，两者均固定版本。
 升级任一方都必须作为显式依赖变更事件记录在本文件中。
+
+各依赖的包管理归属：
+
+- **ShopSimulator Python 依赖**：由
+  `environment/ShopSimulator/shop_env/requirements.txt` 管理，安装于
+  `environment/ShopSimulator/.venv-shopsim/`（不入库）。
+- **DSH 的 Node/pnpm 依赖**：由 dsh 自身的 lockfile（`dsh/pnpm-lock.yaml`）
+  管理；本项目不在仓库外安装或改动它们。
+- **shopping plugin 依赖**：将由 `plugins/shopping/package.json` 及其
+  lockfile 管理（当前该包无运行时依赖，尚未接入 DSH profile）。
+- **模型 endpoint**：属于本地运行配置（环境变量），**不是**提交进仓库的
+  源码依赖；本仓库不提交任何 API key 或真实 endpoint。
 
 ## 与 shopping-grpo-longhorizon 的关系
 

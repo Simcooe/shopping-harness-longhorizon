@@ -1,0 +1,5 @@
+# 空的 Cordis patch 占位（顶层 YAML 数组）。
+# 尚未声明任何 overlay 配置键；在 shopping policy 实现之前保持为空。
+# 依据：dsh/packages/bundle/base/cordis.patch.yml 与
+# dsh/packages/boot/app-boot/src/profile.ts 的 dsh.bundle.patch 机制。
+[]

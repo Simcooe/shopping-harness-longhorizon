@@ -26,13 +26,28 @@
 |---|---|
 | DSH 核心 | 固定 commit SHA，见 `DEPENDENCIES.md`；禁止改源码 |
 | 模型 adapter | 冻结；模型权重固定 |
-| 基础工具执行 | 冻结 |
-| ShopSimulator 环境 | 本仓库 vendored environment（固定源码 snapshot，见 `DEPENDENCIES.md`）；禁止修改环境语义与 Reward |
+| ShopSimulator 环境 | 本仓库 vendored environment（固定源码 snapshot，见 `DEPENDENCIES.md`）；禁止修改环境语义、Reward 与环境 API |
+| `plugins/shopping/src/environment/` | 冻结：环境接入与 HTTP client |
+| `plugins/shopping/src/tools/` | 冻结：工具真实 schema 与 search/open/buy 等工具到环境 action 的映射 |
+| `plugins/shopping/src/observation/` | 冻结：观测解析与结构化 |
+| `plugins/shopping/src/rollout/` | 冻结：rollout 执行与轨迹审计逻辑 |
+| Reward / 任务定义 | 冻结：Reward 计算、任务来源与数据红线 |
 
-### 可进化层（editable）
+### 可进化层（editable，唯一允许 Self-Harness 修改的范围）
 
-仅允许自进化系统修改 **shopping plugin / Cordis overlay 中显式声明的编辑面**，
-清单见 `plugins/shopping/README.md`。任何编辑面之外的改动都视为违规。
+- `plugins/shopping/src/policy/`
+- `harnesses/*/shopping-policy.yml`
+- `harnesses/*/system-prompt.md`
+- 明确声明的 Cordis overlay 配置键
+
+清单细节见 `plugins/shopping/README.md`。任何编辑面之外的改动都视为违规。
+
+### 特别强调
+
+- 自进化优化的是**工具使用协议、上下文组织、失败恢复与终止策略**；
+- **不得**修改 ShopSimulator 工具的真实语义；
+- **不得**修改 search/open/buy 等工具到环境 action 的映射；
+- **不得**修改 HTTP client、Reward、任务定义或轨迹审计逻辑。
 
 ### 闭环（后续实现）
 
@@ -63,15 +78,18 @@ shopping-harness-longhorizon/
 ├── environment/
 │   └── ShopSimulator/      # vendored 环境 snapshot（固定 source commit，见 DEPENDENCIES.md）
 ├── plugins/
-│   └── shopping/           # shopping plugin：唯一自进化编辑面（见其 README）
+│   └── shopping/           # shopping plugin；仅 src/policy/ 为可进化层（见其 README）
+│       └── src/            # environment/tools/observation/rollout 冻结，policy 可进化
 ├── harnesses/
 │   ├── base/               # 冻结基线 harness = DSH base + shopping-base
 │   ├── candidates/         # 候选 patch（必须可 diff/可回放/可回滚/可审计）
 │   └── promoted/           # 通过 gate 的 harness 及其 lineage
 ├── trajectories/           # rollout 轨迹与失败证据（后续实现）
 ├── evaluation/             # held-in/held-out gate 评测（后续实现）
-├── configs/                # 运行与评测配置（后续实现）
-├── tests/                  # 脚手架与约束的测试（后续实现）
+├── configs/
+│   └── tasks/              # 任务声明；development.json 为开发/smoke 专用任务集
+├── scripts/                # 环境 setup/start 与 smoke test 包装脚本
+├── tests/                  # 脚手架与约束的测试
 ├── README.md
 └── DEPENDENCIES.md
 ```
@@ -92,8 +110,9 @@ bash scripts/start_environment.sh
 python3 scripts/smoke_environment.py
 ```
 
-- smoke test 使用的任务下标来自环境进程内生成的 goal 列表（内嵌商品语料，
-  train split），与 Final-200 Clean 无关。
+- smoke test 使用的任务来自 `configs/tasks/development.json` 声明的开发任务集
+  （`purpose: development_smoke_only`）；当前 smoke 仅使用项目声明的开发任务，
+  正式与 Final-200 的隔离验证将在未来引入 benchmark manifest 后执行。
 - 环境变量模板见 `.env.example`（仅本地地址配置；`.env` 不入库）。
 - 注意：snapshot 的 `pack_api.py` 绑定 `0.0.0.0`（上游冻结行为），本项目所有
   调用默认走 `127.0.0.1`。

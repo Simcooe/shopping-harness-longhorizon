@@ -137,6 +137,7 @@ class TestReport(unittest.TestCase):
         report = smoke.build_report(
             base_url="http://127.0.0.1:5700",
             task_idx=0,
+            task_source="configs/tasks/development.json (purpose=development_smoke_only)",
             probe={"ok": True},
             reset={"ok": True, "env_idx": 0},
             interact={"ok": True, "done": False},
@@ -147,6 +148,7 @@ class TestReport(unittest.TestCase):
         self.assertFalse(report["final200_clean_used"])
         self.assertEqual(report["endpoint"],
                          "http://127.0.0.1:5700/api/shop_agent")
+        self.assertIn("development.json", report["task_source"])
         # 报告中不允许出现 goal/商品内容字段
         serialized = str(report)
         self.assertNotIn("instruction", serialized)
@@ -155,6 +157,7 @@ class TestReport(unittest.TestCase):
     def test_report_failure_when_step_fails(self):
         report = smoke.build_report(
             base_url="http://127.0.0.1:5700", task_idx=0,
+            task_source="configs/tasks/development.json",
             probe={"ok": True}, reset={"ok": False, "error": "x"},
             interact=None, release=None, released_in_finally=False,
         )

@@ -1,0 +1,16 @@
+{
+  "name": "@shopping-harness/plugin-shopping",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ShopSimulator shopping plugin for the Self-Harness project. Placeholder boundary only: no DSH profile wiring, no runtime behavior yet.",
+  "type": "module",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

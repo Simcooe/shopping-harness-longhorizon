@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "purpose": "development_smoke_only",
+  "task_ids": [0],
+  "selection_rationale": "task_ids 是 ShopSimulator 在进程内生成的 goal 列表的下标（goals 由环境源码 get_goals() 从本仓库内嵌的压缩商品语料生成，随环境 snapshot 冻结）。下标 0 在 goal 列表非空时是确定有效的开发任务，适合作为 smoke test 的固定探针。",
+  "final_benchmark_excluded": true,
+  "notes": "本文件为本项目自行声明的开发任务集，仅用于开发与 smoke test；不读取、不引用 shopping-grpo-longhorizon 的任何任务或数据。本文件不包含 Final-200 Clean 的任何 task ID。当前 smoke 仅使用本项目声明的开发任务；正式与 Final-200 的隔离验证将在未来引入 benchmark manifest 后执行——本仓库目前没有可验证依据声称两者集合不相交，因此不作此声明。"
+}
