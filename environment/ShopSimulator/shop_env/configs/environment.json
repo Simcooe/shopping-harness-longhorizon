@@ -1,0 +1,48 @@
+{
+  "environment_version": "shopsimulator-environment-v2.1",
+  "search": {
+    "version": "shopsimulator-multifield-bm25-v2",
+    "top_k": 150,
+    "page_size": 20,
+    "field_weights": {
+      "title": 3.0,
+      "brand": 2.0,
+      "category": 2.0,
+      "model": 2.5,
+      "attributes": 1.5,
+      "options": 1.2,
+      "bullets": 0.8
+    }
+  },
+  "reward": {
+    "version": "shopsimulator-reward-v3",
+    "gold_purchase": 1.0,
+    "valid_alternative_purchase": 0.55,
+    "partial_purchase_base": -0.3,
+    "partial_purchase_scale": 0.55,
+    "partial_purchase_cap": 0.25,
+    "graceful_stop": -0.15,
+    "early_abstain": -0.35,
+    "max_steps": -0.5,
+    "repeat_loop": -0.65,
+    "wrong_purchase": -0.85,
+    "reward_unverifiable": 0.0
+  },
+  "termination": {
+    "version": "shopping-termination-v3",
+    "exact_repeat_limit": 2,
+    "no_progress_limit": 4,
+    "max_steps": 35,
+    "min_new_asins_per_result_set": 3,
+    "product_open_progress_budget": 5,
+    "subpage_progress_budget": 6,
+    "result_set_progress_budget": 3
+  },
+  "reward_feature_version": "shopping-reward-features-v1",
+  "option_axis_version": "option-axis-v1",
+  "variant_price_version": "variant-price-v1",
+  "comparator_version": "shopping-comparators-v1",
+  "brand_alias_version": "brand-aliases-v1",
+  "observation_version": "shopping-observation-v2",
+  "tool_version": "shopping-tools-v2"
+}

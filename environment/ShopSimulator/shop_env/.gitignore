@@ -1,0 +1,8 @@
+# tb_items目录中除了指定文件外的所有文件
+data/*.json
+data/*.preparing
+!data/*.json.gz
+search_engine/
+**/__pycache__/
+*.install.log
+shop_env/logs/

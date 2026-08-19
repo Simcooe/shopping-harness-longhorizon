@@ -6,3 +6,18 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# ---- environment/ShopSimulator 运行产物（源码/配置/压缩数据/README/EMBEDDED_SOURCE.json 不忽略）----
+environment/ShopSimulator/.venv-shopsim/
+environment/ShopSimulator/.venv-shopsim-v2/
+environment/ShopSimulator/**/__pycache__/
+environment/ShopSimulator/**/*.pyc
+environment/ShopSimulator/**/logs/
+environment/ShopSimulator/**/cache/
+# 生成的搜索索引
+environment/ShopSimulator/shop_env/search_engine/
+# 解压/生成中的商品数据（压缩源数据 *.json.gz 不忽略）
+environment/ShopSimulator/shop_env/data/*.json
+environment/ShopSimulator/shop_env/data/*.preparing
+# 安装/运行日志
+environment/ShopSimulator/**/*.install.log

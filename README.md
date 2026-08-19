@@ -6,9 +6,10 @@
 
 - **固定 Agent 模型权重**：本项目不做 SFT、GRPO、LoRA，不训练任何模型，也不训练独立的 harness engineer 模型。
 - 进化只发生在 **harness 层**：Agent 在 ShopSimulator 中执行购物任务，失败轨迹被记录为证据；随后由**同一个冻结模型**针对失败证据提出 harness 修改建议。
+- ShopSimulator 以**固定源码 snapshot** 内嵌于 `environment/ShopSimulator/`（vendored environment）；本仓库可独立安装与运行环境，不依赖 `shopping-grpo-longhorizon` 的运行时代码、训练代码或数据。
 - 禁止事项（硬性红线）：
   - 禁止修改 DSH 源码（`dsh/`）。
-  - 禁止修改 ShopSimulator 环境源码（外部只读依赖，见 `DEPENDENCIES.md`）。
+  - 禁止修改 ShopSimulator 环境源码（`environment/ShopSimulator/`，vendored snapshot），尤其禁止以修改环境语义或 Reward 作为 harness 自进化手段。
   - 禁止修改模型权重。
   - 禁止将 Final-200 Clean 用于失败挖掘、harness patch 生成、调参或候选选择；它只能作为**未来最终盲测**。
 - 本版本仅为脚手架：不实现完整 agent，不启动训练或大规模评测。
@@ -26,7 +27,7 @@
 | DSH 核心 | 固定 commit SHA，见 `DEPENDENCIES.md`；禁止改源码 |
 | 模型 adapter | 冻结；模型权重固定 |
 | 基础工具执行 | 冻结 |
-| ShopSimulator 环境 | 外部只读依赖，复用其语义/API，不复制、不移动、不修改 |
+| ShopSimulator 环境 | 本仓库 vendored environment（固定源码 snapshot，见 `DEPENDENCIES.md`）；禁止修改环境语义与 Reward |
 
 ### 可进化层（editable）
 
@@ -59,6 +60,8 @@ rollout → failure evidence → candidate patch → held-in/held-out gate → p
 ```
 shopping-harness-longhorizon/
 ├── dsh/                    # DeepSeek Harness（外部 clone，SHA 固定，见 DEPENDENCIES.md）
+├── environment/
+│   └── ShopSimulator/      # vendored 环境 snapshot（固定 source commit，见 DEPENDENCIES.md）
 ├── plugins/
 │   └── shopping/           # shopping plugin：唯一自进化编辑面（见其 README）
 ├── harnesses/

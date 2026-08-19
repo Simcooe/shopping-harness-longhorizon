@@ -15,14 +15,33 @@
   升级 DSH 需作为一次显式的依赖变更事件记录在本文件中，并重建 base harness。
 - **约束**: `dsh/` 源码在本项目中只读，禁止修改（自进化系统同样禁止）。
 
-## ShopSimulator
+## ShopSimulator（本仓库内嵌，固定源码依赖）
 
-- **来源绝对路径**: `/Users/ywwl/self/shopping-grpo-longhorizon/environments/ShopSimulator`
-- **角色**: 外部、**只读**环境依赖。
+- **本地路径**: `environment/ShopSimulator/`
+- **引入方式**: 从 `/Users/ywwl/self/shopping-grpo-longhorizon/environments/ShopSimulator`
+  复制的**固定源码 snapshot**（vendored，非 git submodule、非软链接）。
+- **上游仓库**: `https://github.com/ShopAgent-Team/ShopSimulator`
+- **upstream base commit**: `51bb26012cee31aea7ac26177c5ffe807026ac07`
+- **source commit**: `9ecba272963960ab4a10e1a781bd05cd7634ce20`
+- **版本元信息**: `environment/ShopSimulator/EMBEDDED_SOURCE.json`（记录上游来源、
+  内嵌范围与排除项）。
+- **许可证**: snapshot 未携带 LICENSE 文件，上游仓库亦未声明许可证；来源与 commit
+  以 `EMBEDDED_SOURCE.json` 为准。
 - **约束**:
-  - 不复制、不移动、不修改该环境源码。
-  - 仅复用其语义/API。
-  - 所属项目 `/Users/ywwl/self/shopping-grpo-longhorizon` 整体只读，本项目不写入其中任何文件。
+  - snapshot 冻结，禁止修改环境语义、API 或 Reward。
+  - 运行时生成物（虚拟环境、日志、缓存、搜索索引、解压商品数据）不入库，见 `.gitignore`。
+
+## 版本固定总则
+
+DSH（`dsh/`，固定 commit SHA）与 ShopSimulator（`environment/ShopSimulator/`，
+固定 source commit）是本项目仅有的两个运行时依赖，**两者均固定版本**。
+升级任一方都必须作为显式依赖变更事件记录在本文件中。
+
+## 与 shopping-grpo-longhorizon 的关系
+
+本项目**不依赖** `shopping-grpo-longhorizon` 的任何运行时产物：不引用其
+`src/`、`data/`、`scripts/`、`configs/`、`tests/`，不使用其 GRPO / SFT / veRL
+训练与评测代码或数据。ShopSimulator snapshot 已使本仓库可独立安装与运行环境。
 
 ## 数据红线
 
