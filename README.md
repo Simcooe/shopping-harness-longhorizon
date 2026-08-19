@@ -76,6 +76,30 @@ shopping-harness-longhorizon/
 └── DEPENDENCIES.md
 ```
 
+## 本地环境 smoke test（无需任何 API key）
+
+验证内嵌 ShopSimulator 可独立启动并完成 reset → interact → release 生命周期，
+全程**不接入模型、DSH，不需要 `MODEL_BASE_URL` / `MODEL_API_KEY`**：
+
+```bash
+# 1. 创建独立 venv、安装环境依赖、解压商品数据、构建搜索索引
+bash scripts/setup_environment.sh
+
+# 2. 启动服务（默认 http://127.0.0.1:5700，可用 SHOPSIM_PORT 覆盖端口）
+bash scripts/start_environment.sh
+
+# 3. 另开一个终端，运行 smoke test
+python3 scripts/smoke_environment.py
+```
+
+- smoke test 使用的任务下标来自环境进程内生成的 goal 列表（内嵌商品语料，
+  train split），与 Final-200 Clean 无关。
+- 环境变量模板见 `.env.example`（仅本地地址配置；`.env` 不入库）。
+- 注意：snapshot 的 `pack_api.py` 绑定 `0.0.0.0`（上游冻结行为），本项目所有
+  调用默认走 `127.0.0.1`。
+
 ## 当前状态
 
-仅完成脚手架与依赖固定。完整 agent、rollout、patch 生成与 gate 均未实现，见各目录 README 占位说明。
+- 脚手架与依赖固定：完成。
+- 内嵌 ShopSimulator 独立启动与 HTTP smoke test：完成（`scripts/`）。
+- 完整 agent、rollout、patch 生成与 gate：未实现，见各目录 README 占位说明。
