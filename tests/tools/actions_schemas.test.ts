@@ -44,7 +44,7 @@ test("固定映射：finish_without_purchase → finish[no_suitable_product]", (
 
 test("未知工具名被拒绝", () => {
   assert.throws(
-    () => toEnvironmentAction("buy_now", {}),
+    () => toEnvironmentAction("checkout_express", {}),
     ActionMappingError,
   );
 });
@@ -79,10 +79,15 @@ test("超长参数被拒绝", () => {
 
 // schemas ---------------------------------------------------------------------
 
-test("恰好三个冻结工具，名称固定", () => {
+test("恰好 12 个冻结工具，名称固定", () => {
   assert.deepEqual(
     SHOPPING_TOOLS.map((tool) => tool.name),
-    ["search_products", "open_product", "finish_without_purchase"],
+    [
+      "search_products", "open_product", "select_option",
+      "view_description", "view_features", "view_reviews", "view_attributes",
+      "next_page", "prev_page", "back_to_search", "buy_now",
+      "finish_without_purchase",
+    ],
   );
   assert.deepEqual([...SHOPPING_TOOL_NAMES], SHOPPING_TOOLS.map((tool) => tool.name));
 });
@@ -91,7 +96,10 @@ test("所有 schema 都是严格 object 且禁止额外参数", () => {
   for (const tool of SHOPPING_TOOLS) {
     assert.equal(tool.parameters.type, "object");
     assert.equal(tool.parameters.additionalProperties, false);
-    assert.ok(tool.parameters.required.length > 0);
+    // 有参数的工具必须声明 required；无参数工具 required 为空
+    if (Object.keys(tool.parameters.properties).length > 0) {
+      assert.ok(tool.parameters.required.length > 0);
+    }
     assert.ok(tool.description.length > 0);
   }
 });
@@ -123,5 +131,27 @@ test("validateToolArgs 拒绝非对象参数与枚举越界", () => {
 
 test("isShoppingToolName 判别", () => {
   assert.equal(isShoppingToolName("search_products"), true);
-  assert.equal(isShoppingToolName("buy_now"), false);
+  assert.equal(isShoppingToolName("checkout_express"), false);
+});
+
+test("固定映射：其余 9 个无参数/选项工具", () => {
+  assert.equal(toEnvironmentAction("select_option", { value: "红色" }), "click[红色]");
+  assert.equal(toEnvironmentAction("view_description", {}), "click[Description]");
+  assert.equal(toEnvironmentAction("view_features", {}), "click[Features]");
+  assert.equal(toEnvironmentAction("view_reviews", {}), "click[Reviews]");
+  assert.equal(toEnvironmentAction("view_attributes", {}), "click[Attributes]");
+  assert.equal(toEnvironmentAction("next_page", {}), "click[Next >]");
+  assert.equal(toEnvironmentAction("prev_page", {}), "click[< Prev]");
+  assert.equal(toEnvironmentAction("back_to_search", {}), "click[Back to Search]");
+  assert.equal(toEnvironmentAction("buy_now", {}), "click[Buy Now]");
+});
+
+test("无参数工具携带参数被拒绝", () => {
+  assert.throws(() => toEnvironmentAction("buy_now", { asin: "X" }), ActionMappingError);
+  assert.throws(() => toEnvironmentAction("next_page", { page: 2 }), ActionMappingError);
+});
+
+test("select_option 参数文法保护", () => {
+  assert.throws(() => toEnvironmentAction("select_option", { value: "a]b" }), ActionMappingError);
+  assert.throws(() => toEnvironmentAction("select_option", {}), ActionMappingError);
 });

@@ -19,6 +19,8 @@ import {
 
 /** 敏感哨兵：服务端"偷偷"返回 goal/observation 类字段，绝不应泄漏。 */
 const SECRET = "SECRET-GOAL-gold-asin-xyz";
+/** 任务指令是 actor 可见内容，用独立哨兵。 */
+const TASK_TEXT = "TASK-INSTRUCTION-visible";
 
 interface CapturedRequest {
   url: string;
@@ -61,7 +63,7 @@ function realisticResetResult(envIdx = 2): Record<string, unknown> {
     env_idx: envIdx,
     idx: 0,
     message: "Task 0 started",
-    instruction: SECRET,
+    instruction: TASK_TEXT,
     instruction_simple: SECRET,
     goal_options: { 颜色: ["红", "蓝"] },
     environment_version: "shopsimulator-environment-v2.1",
@@ -118,11 +120,15 @@ test("reset 成功：返回 actor-safe 字段，请求体正确", async () => {
 
   const result = await client.reset(0);
 
-  assert.deepEqual(result, {
-    envIdx: 2,
-    environmentVersion: "shopsimulator-environment-v2.1",
-    message: "Task 0 started",
-  });
+  assert.equal(result.envIdx, 2);
+  assert.equal(result.environmentVersion, "shopsimulator-environment-v2.1");
+  assert.equal(result.message, "Task 0 started");
+  // 任务指令进入 actor 通道；goal_options 等隐藏字段被丢弃
+  assert.equal(result.task?.instructionText, TASK_TEXT);
+  // observation_state 存在 → 白名单投影；其中夹带的 secrets 键被丢弃
+  assert.ok(result.observation !== null);
+  assert.ok(!JSON.stringify(result).includes(SECRET));
+  assert.ok(!JSON.stringify(result).includes("goal_options"));
   assert.equal(captured.length, 1);
   assert.equal(captured[0]?.url, `http://127.0.0.1:5700${SHOP_AGENT_PATH}`);
   assert.equal(captured[0]?.method, "POST");
@@ -137,7 +143,10 @@ test("interact 成功：只返回 done/over/envIdx", async () => {
 
   const result = await client.interact(2, "Thought: t\nAction: search[枕头]");
 
-  assert.deepEqual(result, { envIdx: 2, done: false, over: false });
+  assert.equal(result.envIdx, 2);
+  assert.equal(result.done, false);
+  assert.equal(result.over, false);
+  assert.ok(result.observation !== undefined);
   assert.deepEqual(captured[0]?.payload, {
     action: "interact",
     env_idx: 2,
@@ -290,8 +299,10 @@ test("所有返回值与错误对象不泄漏 goal/gold/observation 内容", asy
   }
   // 字段白名单：返回值里不允许出现 goal/observation 类键
   for (const value of [resetResult, interactResult]) {
-    for (const forbidden of ["instruction", "goal", "goal_options", "reward_detail", "observation_state"]) {
+    for (const forbidden of ["goal", "goal_options", "reward_detail", "observation_state", "reward"]) {
       assert.ok(!(forbidden in value), `返回值不应包含 ${forbidden}`);
     }
   }
+  // interact 返回值不含页面原文键（只经投影的 observation 结构）
+  assert.ok(!("instruction" in interactResult));
 });

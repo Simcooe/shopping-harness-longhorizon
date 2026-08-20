@@ -60,7 +60,7 @@ test("validateLiveTaskConfig 拒绝违规项", () => {
     ["task_source", { ...validConfigObject(), task_source: "other.json" }],
     ["max_environment_steps", { ...validConfigObject(), max_environment_steps: 0 }],
     ["temperature", { ...validConfigObject(), temperature: -1 }],
-    ["allowed_tools", { ...validConfigObject(), allowed_tools: ["buy_now"] }],
+    ["allowed_tools", { ...validConfigObject(), allowed_tools: ["checkout_express"] }],
     ["output_dir", { ...validConfigObject(), output_dir: "/tmp/" }],
     ["final_benchmark_excluded", { ...validConfigObject(), final_benchmark_excluded: false }],
   ];

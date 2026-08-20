@@ -14,9 +14,11 @@
 import {
   extractServerError,
   parseEnvelope,
+  parseEvaluatorOutcome,
   parseInteractResult,
   parseReleaseResult,
   parseResetResult,
+  type EvaluatorOutcome,
   type InteractResult,
   type ReleaseResult,
   type ResetResult,
@@ -73,12 +75,20 @@ export interface ShopSimulatorHttpClientOptions {
   fetchImpl?: typeof fetch;
   /** 单次请求超时，毫秒。 */
   timeoutMs?: number;
+  /**
+   * evaluator-only 结果证据接收器（Phase 6 双通道）。
+   * interact 返回 done 时，服务端 reward/termination 证据只流向该 sink，
+   * **绝不**出现在 interact 的返回值中——调用方（工具层）在类型上
+   * 就拿不到 evaluator 数据，从结构上阻断回灌模型的路径。
+   */
+  evaluatorSink?: (outcome: EvaluatorOutcome) => void;
 }
 
 export class ShopSimulatorHttpClient {
   readonly baseUrl: string;
   readonly #fetchImpl: typeof fetch;
   readonly #timeoutMs: number;
+  readonly #evaluatorSink: ((outcome: EvaluatorOutcome) => void) | null;
 
   constructor(baseUrl: string, options: ShopSimulatorHttpClientOptions = {}) {
     const trimmed = baseUrl.trim().replace(/\/+$/, "");
@@ -88,6 +98,7 @@ export class ShopSimulatorHttpClient {
     this.baseUrl = trimmed;
     this.#fetchImpl = options.fetchImpl ?? fetch;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#evaluatorSink = options.evaluatorSink ?? null;
   }
 
   /** 从环境变量构造；只读 SHOPSIM_BASE_URL，绝不读取任何 API key。 */
@@ -112,13 +123,22 @@ export class ShopSimulatorHttpClient {
     return parsed.value;
   }
 
-  /** interact：在已领取的 slot 上执行一步动作。 */
+  /** interact：在已领取的 slot 上执行一步动作（返回值为 actor 通道）。 */
   async interact(envIdx: number, action: string): Promise<InteractResult> {
     const result = await this.#post({
       action: "interact",
       env_idx: envIdx,
       response: action,
     });
+    // evaluator 通道：done 时的 reward/termination 证据只流向 sink
+    const outcome = parseEvaluatorOutcome(result);
+    if (outcome !== null && this.#evaluatorSink !== null) {
+      try {
+        this.#evaluatorSink(outcome);
+      } catch {
+        // sink 失败不影响 actor 通道
+      }
+    }
     const parsed = parseInteractResult(result);
     if (!parsed.ok) {
       throw new ShopSimProtocolError(parsed.reason);

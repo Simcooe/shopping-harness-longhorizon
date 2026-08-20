@@ -1,5 +1,5 @@
 /**
- * rollout 记录器脱敏与 JSONL 测试。
+ * actor trace 记录器脱敏与 JSONL 测试（Phase 6 schema v2）。
  */
 
 import assert from "node:assert/strict";
@@ -9,9 +9,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+  ACTOR_TRACE_SCHEMA_VERSION,
   FORBIDDEN_RECORD_KEYS,
   RolloutRecorder,
-  ROLLOUT_SCHEMA_VERSION,
   makeRunId,
   sanitizeForRecord,
 } from "../../plugins/shopping/src/rollout/index.ts";
@@ -33,26 +33,25 @@ test("sanitizeForRecord 递归剔除禁止键并截断长字符串", () => {
   const sanitized = sanitizeForRecord({
     tool: "search_products",
     args: { query: "枕头", goal: SECRET, nested: { reward_detail: SECRET, ok: 1 } },
-    observation: SECRET,
+    termination_reason: SECRET,
+    authorization: SECRET,
     list: [{ gold: SECRET }, "fine"],
-    long: "x".repeat(900),
+    long: "x".repeat(2500),
   }) as Record<string, unknown>;
 
   const text = JSON.stringify(sanitized);
   assert.ok(!text.includes(SECRET));
-  assert.ok(!text.includes("goal"));
-  assert.ok(!text.includes("reward_detail"));
   const args = sanitized["args"] as Record<string, unknown>;
   assert.equal(args["query"], "枕头");
   assert.deepEqual(args["nested"], { ok: 1 });
   assert.deepEqual(sanitized["list"], [{}, "fine"]);
-  assert.ok(String(sanitized["long"]).length <= 402);
+  assert.ok(String(sanitized["long"]).length <= 2002);
 });
 
-test("禁止键清单覆盖 goal/gold/reward/observation/凭据类", () => {
+test("禁止键清单覆盖 goal/gold/reward/purchase/凭据/termination", () => {
   for (const required of [
-    "goal", "gold", "reward", "reward_detail", "goal_options", "purchase",
-    "instruction", "observation", "api_key", "token", "secret",
+    "goal", "gold", "reward", "reward_detail", "reward_valid", "goal_options",
+    "purchase", "termination_reason", "api_key", "authorization", "secret", "token",
   ]) {
     assert.ok(
       (FORBIDDEN_RECORD_KEYS as readonly string[]).includes(required),
@@ -61,10 +60,17 @@ test("禁止键清单覆盖 goal/gold/reward/observation/凭据类", () => {
   }
 });
 
-test("JSONL 记录包含必需字段且逐行可解析", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rollout-"));
+test("actor trace：六类事件逐行可解析，字段完整", () => {
+  const dir = mkdtempSync(join(tmpdir(), "actor-"));
   try {
     const recorder = makeRecorder(dir);
+    recorder.record({
+      event: "run_start",
+      profile: "shopping-base",
+      tools: ["search_products"],
+      system_prompt_ref: "harnesses/base/system-prompt.md",
+    });
+    recorder.record({ event: "task_instruction", instruction_text: "买一个枕头" });
     recorder.record({
       event: "tool_call",
       tool: "search_products",
@@ -72,61 +78,82 @@ test("JSONL 记录包含必需字段且逐行可解析", () => {
       environment_action: "search[乳胶枕头]",
     });
     recorder.record({
-      event: "step",
-      environment_action: "search[乳胶枕头]",
-      observation_summary: { env_idx: 0, done: false, over: false },
+      event: "guard_rejection",
+      tool: "open_product",
+      guard_reason: "asin_not_visible",
+      correction: "该 asin 不在当前页面可见的商品列表中。",
+    });
+    recorder.record({
+      event: "observation",
+      page_type: "search_results",
       done: false,
+      observation: { page_type: "search_results", products: [{ asin: "B0X" }] },
     });
     recorder.record({
       event: "terminal",
       done: false,
-      termination_reason: "finish_without_purchase",
+      local_reason: "environment_done",
       release_status: "released",
     });
     recorder.close();
 
     const lines = readFileSync(recorder.filePath, "utf-8").trim().split("\n");
-    assert.equal(lines.length, 3);
+    assert.equal(lines.length, 6);
     const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
     for (const [index, record] of parsed.entries()) {
-      assert.equal(record["schema_version"], ROLLOUT_SCHEMA_VERSION);
+      assert.equal(record["schema_version"], ACTOR_TRACE_SCHEMA_VERSION);
       assert.equal(record["run_id"], "run-test-001");
       assert.equal(record["task_id"], 0);
       assert.equal(record["harness_version"], "shopping-base@0.0.0");
       assert.equal(record["timestamp"], "2026-08-20T00:00:00.000Z");
       assert.equal(record["seq"], index);
     }
-    assert.equal(parsed[0]?.["event"], "tool_call");
-    assert.equal(parsed[2]?.["release_status"], "released");
+    assert.deepEqual(
+      parsed.map((record) => record["event"]),
+      ["run_start", "task_instruction", "tool_call", "guard_rejection", "observation", "terminal"],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("脱敏在真实写入路径生效：记录中不含哨兵", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rollout-"));
+test("actor trace 保留模型可见内容、剔除 evaluator/隐藏内容", () => {
+  const dir = mkdtempSync(join(tmpdir(), "actor-"));
   try {
     const recorder = makeRecorder(dir);
+    // 模拟被污染的事件载荷：隐藏字段必须被剔除
     recorder.record({
-      event: "tool_call",
-      tool: "search_products",
-      // 模拟被污染的参数与隐藏字段
-      args: { query: "枕头", goal: SECRET, instruction: SECRET } as Record<string, unknown>,
-      environment_action: "search[枕头]",
+      event: "observation",
+      page_type: "search_results",
+      done: false,
+      observation: {
+        products: [{ asin: "B0X", title: "枕头" }],
+        goal: SECRET,
+        reward: 1.0,
+        gold_asin: SECRET,
+      } as unknown as Record<string, unknown>,
+    });
+    recorder.record({
+      event: "task_instruction",
+      instruction_text: "请购买一个儿童乳胶枕头",
     });
     recorder.close();
 
     const text = readFileSync(recorder.filePath, "utf-8");
+    // 模型可见内容保留
+    assert.ok(text.includes("B0X"));
+    assert.ok(text.includes("请购买一个儿童乳胶枕头"));
+    // 隐藏内容剔除
     assert.ok(!text.includes(SECRET));
+    assert.ok(!text.includes('"reward"'));
     assert.ok(!text.includes('"goal"'));
-    assert.ok(text.includes('"query":"枕头"'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("关闭后再记录抛错；重复 close 安全", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rollout-"));
+  const dir = mkdtempSync(join(tmpdir(), "actor-"));
   try {
     const recorder = makeRecorder(dir);
     recorder.close();
@@ -135,7 +162,7 @@ test("关闭后再记录抛错；重复 close 安全", () => {
       () => recorder.record({
         event: "terminal",
         done: true,
-        termination_reason: "x",
+        local_reason: "environment_done",
         release_status: "released",
       }),
       /已关闭/,

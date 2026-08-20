@@ -13,10 +13,19 @@ max_environment_steps: 5
 # temperature 默认 0（与 adapter 模型参数的绑定在 profile llm 行验证后接入）
 temperature: 0
 
-# 允许的工具：仅限当前已实现的三个冻结工具
+# 允许的工具：仅限当前已实现的 12 个冻结工具
 allowed_tools:
   - search_products
   - open_product
+  - select_option
+  - view_description
+  - view_features
+  - view_reviews
+  - view_attributes
+  - next_page
+  - prev_page
+  - back_to_search
+  - buy_now
   - finish_without_purchase
 
 # 脱敏轨迹输出目录（JSONL 不入库）

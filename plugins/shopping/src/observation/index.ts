@@ -9,7 +9,8 @@ export {
   projectRawResult,
   projectReset,
   renderFinishSummary,
-  renderInteractSummary,
+  renderObservation,
+  renderToolSummary,
   type ProjectedInteract,
   type ProjectedReset,
 } from "./project.ts";

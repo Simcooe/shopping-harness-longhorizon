@@ -130,7 +130,7 @@ apply({ tools: registry });
 const registeredNames = registry.definitions.map((definition) => definition.name).sort();
 const expectedNames = SHOPPING_TOOLS.map((tool) => tool.name).sort();
 step(
-  "apply() 注册三个工具",
+  "apply() 注册完整冻结工具集（12 个）",
   JSON.stringify(registeredNames) === JSON.stringify(expectedNames),
   `registered=[${registeredNames.join(", ")}]`,
 );
@@ -143,9 +143,13 @@ for (const definition of registry.definitions) {
     schemaOk = false;
     schemaNotes.push(`${definition.name}: additionalProperties 不为 false`);
   }
-  if (!Array.isArray(params["required"]) || (params["required"] as unknown[]).length === 0) {
+  const hasProperties = typeof params["properties"] === "object"
+    && params["properties"] !== null
+    && Object.keys(params["properties"] as object).length > 0;
+  if (hasProperties
+    && (!Array.isArray(params["required"]) || (params["required"] as unknown[]).length === 0)) {
     schemaOk = false;
-    schemaNotes.push(`${definition.name}: 缺少 required`);
+    schemaNotes.push(`${definition.name}: 有参数但未声明 required`);
   }
   if (typeof definition.execute !== "function" || typeof definition.output?.render !== "function") {
     schemaOk = false;

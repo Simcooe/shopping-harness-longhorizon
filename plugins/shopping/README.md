@@ -69,11 +69,27 @@ pnpm --dir plugins/shopping test       # mock 单元测试（node:test）
 每个候选 patch 必须可 diff、可回放、可回滚、可审计，且零触碰冻结层
 （见根 README）。
 
-## 三个 model-facing 工具（冻结，见 src/tools/）
+## 12 个 model-facing 工具（冻结，见 src/tools/）
 
-1. `search_products({ query })` → `search[query]`
-2. `open_product({ asin })` → `click[asin]`
-3. `finish_without_purchase({ reason: "no_suitable_product" })` → `finish[no_suitable_product]`
+| 工具 | 环境 action |
+|---|---|
+| `search_products({ query })` | `search[query]` |
+| `open_product({ asin })` | `click[asin]` |
+| `select_option({ value })` | `click[value]` |
+| `view_description({})` | `click[Description]` |
+| `view_features({})` | `click[Features]` |
+| `view_reviews({})` | `click[Reviews]` |
+| `view_attributes({})` | `click[Attributes]` |
+| `next_page({})` | `click[Next >]` |
+| `prev_page({})` | `click[< Prev]` |
+| `back_to_search({})` | `click[Back to Search]` |
+| `buy_now({})` | `click[Buy Now]` |
+| `finish_without_purchase({ reason })` | `finish[no_suitable_product]` |
+
+冻结 action guard（`src/tools/guard.ts`）在调用环境前校验：asin/选项/按钮
+必须来自模型上一轮**实际看到**的 actor-visible 观测；搜索不可用时拒绝
+search；terminal 后拒绝一切调用；拒绝时不调用 ShopSimulator、不消耗步数，
+只向模型返回安全纠正信息并写 actor trace 的 `guard_rejection`。
 
 ## 接入状态：已装配进 DSH profile，尚未执行真实模型
 

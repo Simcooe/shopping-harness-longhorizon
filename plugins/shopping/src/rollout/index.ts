@@ -3,15 +3,19 @@
  */
 
 export {
+  ACTOR_TRACE_SCHEMA_VERSION,
   FORBIDDEN_RECORD_KEYS,
   RolloutRecorder,
-  ROLLOUT_SCHEMA_VERSION,
   makeRunId,
   sanitizeForRecord,
-  type RolloutEvent,
-  type RolloutRecord,
+  type ActorEvent,
+  type ActorRecord,
+  type ActorRecordBase,
+  type GuardRejectionRecord,
+  type ObservationRecord,
   type RolloutRecorderOptions,
-  type StepRecord,
+  type RunStartRecord,
+  type TaskInstructionRecord,
   type TerminalRecord,
   type ToolCallRecord,
 } from "./recorder.ts";
@@ -33,3 +37,12 @@ export {
   type LiveTaskConfig,
   type RunMetadata,
 } from "./live_config.ts";
+
+export {
+  EVALUATOR_SCHEMA_VERSION,
+  EvaluatorCollector,
+  FAILURE_LABELS,
+  writeEvaluatorRecord,
+  type EvaluatorRecord,
+  type FailureLabel,
+} from "./evaluator_record.ts";

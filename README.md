@@ -159,11 +159,26 @@ bash scripts/run_live_task.sh --task-id 0 --live
 - shopping plugin environment adapter（HTTP client + session 生命周期）：
   完成，mock 单元测试通过；`pnpm --dir plugins/shopping smoke-shopping-adapter --live`
   可在环境运行时做 live 验证。
-- shopping plugin 已按 DSH 真实 bundle/profile 机制装配：三个冻结购物
-  工具（`search_products` / `open_product` / `finish_without_purchase`）
-  经 `ctx.tools.register` 注册；`harnesses/base/` 为 shopping-base
-  profile。离线装配检查：`pnpm --dir plugins/shopping check:dsh`。
+- shopping plugin 已按 DSH 真实 bundle/profile 机制装配：**12 个冻结购物
+  工具**（search_products / open_product / select_option / view_description /
+  view_features / view_reviews / view_attributes / next_page / prev_page /
+  back_to_search / buy_now / finish_without_purchase）经 `ctx.tools.register`
+  注册，带冻结 action guard（参数必须来自模型实际看到的页面观测）；
+  `harnesses/base/` 为 shopping-base profile。
+  离线装配检查：`pnpm --dir plugins/shopping check:dsh`。
   机制与限制见 `docs/dsh-shopping-plugin.md`。
+- **双轨迹记录（Phase 6）**：
+  - `trajectories/actor/<run_id>.jsonl` — **actor trace**：模型实际可见的
+    证据（任务指令、工具调用、环境 action、脱敏页面观测、guard 拒绝、
+    terminal/release），未来 Self-Harness 从这里挖掘失败模式；
+  - `evaluation/runs/<run_id>.json` — **evaluator record**：结果证据
+    （环境 reward / reward 类型 / 有效性、终止原因、步数与 guard 统计、
+    失败标签），与 actor trace 以 `run_id` 关联。
+  - **Reward 只在 evaluator 侧**：evaluator 证据经 client 的 evaluatorSink
+    直达记录器，工具结果/prompt/DSH session 在类型上拿不到它，绝无回灌
+    同一任务模型的路径。两者均为运行产物，不入库。
+- **本阶段仍不是 Self-Harness**：不根据 evaluator record 修改 harness，
+  不做失败挖掘/候选 patch/训练。
 - live runner 已就绪：用户填写 `.env` 模型配置并显式 `--live` 后，
   `bash scripts/run_live_task.sh --task-id 0 --live` 运行单条真实任务
   （见上节）。本仓库未提交任何 `.env`，未代为执行模型调用。

@@ -1,16 +1,23 @@
 /**
- * shopping 运行时持有者（冻结层）：环境 client、当前会话与记录器。
+ * shopping 运行时持有者（冻结层）：环境 client、当前会话、guard 状态、
+ * actor trace 记录器与 evaluator 收集器。
  *
- * 约束：
- *   - task_id 只能由外部 runner 注入（见 rollout/task_source.ts），
- *     本层不提供任何"自选任务"能力；
- *   - 不创建新环境任务，只领取注入的 task_id；
- *   - terminal 或异常时负责归还租约（release 幂等）。
+ * 双轨迹装配（Phase 6）：
+ *   - actor trace：trajectories/actor/<run_id>.jsonl（模型可见证据）；
+ *   - evaluator record：evaluation/runs/<run_id>.json（结果证据）。
+ * evaluator 数据只经 client 的 evaluatorSink 流入 EvaluatorCollector，
+ * tools/register/observation 层在类型上拿不到它。
+ *
+ * 约束：task_id 只能由外部 runner 注入；本层不提供"自选任务"能力。
  */
 
 import { ShopSimulatorHttpClient } from "../environment/client.ts";
+import type { ActorObservation } from "../environment/protocol.ts";
 import { ShoppingEnvironmentSession } from "../environment/session.ts";
+import { checkToolCall, GuardRejectionError, type GuardState } from "./guard.ts";
+import type { ShoppingToolName } from "./actions.ts";
 import { RolloutRecorder } from "../rollout/recorder.ts";
+import { EvaluatorCollector, writeEvaluatorRecord } from "../rollout/evaluator_record.ts";
 import { assertInjectedTaskId, loadDevelopmentTaskSource } from "../rollout/task_source.ts";
 
 /** 步数预算错误：run 以 max_steps 终止。 */
@@ -22,37 +29,50 @@ export class MaxStepsError extends Error {
 }
 
 export interface ShoppingRuntimeOptions {
-  /** 默认 ShopSimulatorHttpClient.fromEnv()。 */
+  /** 默认按 SHOPSIM_BASE_URL 构造（并接线 evaluatorSink）。 */
   client?: ShopSimulatorHttpClient;
-  /** 可选轨迹记录器（由外部 runner 注入）。 */
   recorder?: RolloutRecorder;
-  /** 最大环境步数；默认读 SHOPPING_MAX_STEPS，否则 5。 */
   maxSteps?: number;
-  /** 测试可注入的环境变量视图。 */
   env?: Record<string, string | undefined>;
-  /** 轨迹目录（懒注入记录器时使用）。 */
+  /** actor trace 根目录；默认 trajectories（实际写 <dir>/actor/）。 */
   trajectoriesDir?: string;
-  /** harness 版本标记（轨迹 metadata）。 */
+  /** evaluator record 目录；默认 evaluation/runs。 */
+  evaluationDir?: string;
   harnessVersion?: string;
 }
 
 export class ShoppingRuntime {
   readonly client: ShopSimulatorHttpClient;
   readonly maxSteps: number;
+  readonly evaluator: EvaluatorCollector;
 
   #recorder: RolloutRecorder | null;
   #env: Record<string, string | undefined>;
   #trajectoriesDir: string;
+  #evaluationDir: string;
   #harnessVersion: string;
   #session: ShoppingEnvironmentSession | null = null;
   #steps = 0;
+  #guardState: GuardState = { observation: null, terminal: false, inFlight: false };
+  #taskInstruction: string | null = null;
+  #taskId: number | null = null;
+  #evaluatorWritten = false;
 
   constructor(options: ShoppingRuntimeOptions = {}) {
-    this.client = options.client ?? ShopSimulatorHttpClient.fromEnv();
-    this.#recorder = options.recorder ?? null;
     this.#env = options.env ?? process.env;
     this.#trajectoriesDir = options.trajectoriesDir ?? "trajectories";
+    this.#evaluationDir = options.evaluationDir ?? "evaluation/runs";
     this.#harnessVersion = options.harnessVersion ?? "shopping-base@0.0.0";
+    this.evaluator = new EvaluatorCollector();
+    if (options.client !== undefined) {
+      this.client = options.client;
+    } else {
+      // 默认 client：evaluator 结果证据只流向本 runtime 的收集器
+      this.client = ShopSimulatorHttpClient.fromEnv(this.#env, {
+        evaluatorSink: (outcome) => this.evaluator.noteEvaluatorOutcome(outcome),
+      });
+    }
+    this.#recorder = options.recorder ?? null;
     const fromEnv = Number(this.#env["SHOPPING_MAX_STEPS"]);
     this.maxSteps = options.maxSteps
       ?? (Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 5);
@@ -70,6 +90,18 @@ export class ShoppingRuntime {
     return this.#steps;
   }
 
+  get taskId(): number | null {
+    return this.#taskId;
+  }
+
+  get harnessVersion(): string {
+    return this.#harnessVersion;
+  }
+
+  get evaluationDir(): string {
+    return this.#evaluationDir;
+  }
+
   /** 步数预算：超额抛 MaxStepsError（run 以 max_steps 终止）。 */
   noteStep(): void {
     if (this.#steps >= this.maxSteps) {
@@ -77,6 +109,47 @@ export class ShoppingRuntime {
     }
     this.#steps += 1;
   }
+
+  // ---- guard 集成 -----------------------------------------------------------
+
+  /** guard 校验：拒绝时抛 GuardRejectionError（不调用环境、不耗步数）。 */
+  guardCheck(toolName: ShoppingToolName, args: Record<string, unknown>): void {
+    try {
+      checkToolCall(toolName, args, this.#guardState);
+    } catch (cause) {
+      if (cause instanceof GuardRejectionError) {
+        this.evaluator.noteGuardRejection();
+        this.#recorder?.record({
+          event: "guard_rejection",
+          tool: toolName,
+          guard_reason: cause.guardReason,
+          correction: cause.message,
+        });
+      }
+      throw cause;
+    }
+  }
+
+  beginCall(): void {
+    this.#guardState.inFlight = true;
+  }
+
+  endCall(): void {
+    this.#guardState.inFlight = false;
+  }
+
+  /** 用最新 actor 观测更新 guard 状态。 */
+  observe(observation: ActorObservation | null): void {
+    if (observation !== null) {
+      this.#guardState.observation = observation;
+    }
+  }
+
+  markTerminal(): void {
+    this.#guardState.terminal = true;
+  }
+
+  // ---- 会话 ----------------------------------------------------------------
 
   /**
    * 注入外部选择的 task_id 并领取会话（reset）。
@@ -87,15 +160,21 @@ export class ShoppingRuntime {
       throw new Error("已存在活动 shopping 会话；先 release 再开新会话");
     }
     const session = new ShoppingEnvironmentSession(this.client, taskId);
-    await session.reset();
+    const reset = await session.reset();
     this.#session = session;
+    this.#taskId = taskId;
+    this.#taskInstruction = reset.task?.instructionText ?? null;
+    this.#recorder?.record({
+      event: "task_instruction",
+      instruction_text: this.#taskInstruction ?? "",
+    });
     return session;
   }
 
   /**
    * 懒会话：优先返回活动会话；否则从 runner 注入的 SHOPPING_TASK_ID
-   * 打开会话（task_id 仍由外部注入，且必须属于声明的开发任务集）。
-   * 同时按 SHOPPING_RUN_ID 懒注入轨迹记录器。
+   * 打开会话（task_id 必须属于声明的开发任务集）。
+   * 同时按 SHOPPING_RUN_ID 懒注入 actor 记录器。
    */
   async ensureSession(): Promise<ShoppingEnvironmentSession> {
     if (this.#session !== null && !this.#session.released) {
@@ -120,33 +199,61 @@ export class ShoppingRuntime {
       const runId = this.#env["SHOPPING_RUN_ID"]?.trim();
       if (runId !== undefined && runId.length > 0) {
         this.#recorder = new RolloutRecorder({
-          dir: this.#trajectoriesDir,
+          dir: `${this.#trajectoriesDir}/actor`,
           runId,
           taskId,
           harnessVersion: this.#harnessVersion,
+        });
+        this.#recorder.record({
+          event: "run_start",
+          profile: "shopping-base",
+          tools: [],
+          system_prompt_ref: "harnesses/base/system-prompt.md",
         });
       }
     }
     return this.openSession(taskId);
   }
 
-  /** 工具 handler 使用：必须已有活动会话。 */
-  requireSession(): ShoppingEnvironmentSession {
-    if (this.#session === null) {
-      throw new Error("没有活动 shopping 会话（task_id 必须由外部 runner 注入）");
+  /** 任务指令一次性可见：首个工具结果注入后清空。 */
+  consumeTaskInstruction(): string | null {
+    const instruction = this.#taskInstruction;
+    this.#taskInstruction = null;
+    return instruction;
+  }
+
+  /** 写 evaluator record（幂等：只写一次）。 */
+  finalizeEvaluator(releaseStatus: "released" | "release_failed" | "not_released"): void {
+    if (this.#evaluatorWritten || this.#taskId === null) {
+      return;
     }
-    if (this.#session.released) {
-      throw new Error("shopping 会话已释放");
+    const runId = this.#env["SHOPPING_RUN_ID"]?.trim();
+    if (runId === undefined || runId.length === 0) {
+      return;
     }
-    return this.#session;
+    this.#evaluatorWritten = true;
+    writeEvaluatorRecord(
+      this.#evaluationDir,
+      this.evaluator.build({
+        runId,
+        taskId: this.#taskId,
+        harnessVersion: this.#harnessVersion,
+        releaseStatus,
+      }),
+    );
   }
 
   /** 归还并解绑当前会话（幂等）。 */
   async closeSession(): Promise<void> {
     const session = this.#session;
     this.#session = null;
+    this.markTerminal();
     if (session !== null) {
       await session.release();
+      this.finalizeEvaluator(
+        session.releaseError === null ? "released" : "release_failed",
+      );
     }
+    this.#recorder?.close();
   }
 }

@@ -1,40 +1,55 @@
 /**
  * 购物工具 → ShopSimulator 环境 action 的固定映射（冻结层）。
  *
- * 唯一职责：三个 model-facing 工具到环境 action 字符串的一一映射。
- *   search_products        → search[<query>]
- *   open_product           → click[<asin>]
- *   finish_without_purchase → finish[no_suitable_product]
+ * 12 个 model-facing 工具到环境 action 字符串的一一映射：
+ *   search_products          → search[<query>]
+ *   open_product             → click[<asin>]
+ *   select_option            → click[<value>]
+ *   view_description         → click[Description]
+ *   view_features            → click[Features]
+ *   view_reviews             → click[Reviews]
+ *   view_attributes          → click[Attributes]
+ *   next_page                → click[Next >]
+ *   prev_page                → click[< Prev]
+ *   back_to_search           → click[Back to Search]
+ *   buy_now                  → click[Buy Now]
+ *   finish_without_purchase  → finish[no_suitable_product]
  *
+ * 按钮常量与固定环境源码一致（engine.py：END_BUTTON/NEXT_PAGE/
+ * PREV_PAGE/BACK_TO_SEARCH 与 ACTION_TO_TEMPLATE）。
  * 本文件为冻结层：未来 Self-Harness 不得修改。
  */
 
 export const SHOPPING_TOOL_NAMES = [
   "search_products",
   "open_product",
+  "select_option",
+  "view_description",
+  "view_features",
+  "view_reviews",
+  "view_attributes",
+  "next_page",
+  "prev_page",
+  "back_to_search",
+  "buy_now",
   "finish_without_purchase",
 ] as const;
 
 export type ShoppingToolName = (typeof SHOPPING_TOOL_NAMES)[number];
 
-export interface SearchProductsArgs {
-  query: string;
-}
-
-export interface OpenProductArgs {
-  asin: string;
-}
+/** 无参数工具。 */
+export const NO_ARG_TOOL_NAMES = [
+  "view_description",
+  "view_features",
+  "view_reviews",
+  "view_attributes",
+  "next_page",
+  "prev_page",
+  "back_to_search",
+  "buy_now",
+] as const;
 
 export type FinishReason = "no_suitable_product";
-
-export interface FinishWithoutPurchaseArgs {
-  reason: FinishReason;
-}
-
-export type ShoppingToolArgs =
-  | SearchProductsArgs
-  | OpenProductArgs
-  | FinishWithoutPurchaseArgs;
 
 /** 映射层错误：非法工具名或参数内容会破坏环境 action 文法。 */
 export class ActionMappingError extends Error {
@@ -68,6 +83,12 @@ export function isShoppingToolName(name: string): name is ShoppingToolName {
   return (SHOPPING_TOOL_NAMES as readonly string[]).includes(name);
 }
 
+function requireNoArgs(args: Record<string, unknown>, toolName: string): void {
+  if (Object.keys(args).length > 0) {
+    throw new ActionMappingError(`${toolName} 不接受任何参数`);
+  }
+}
+
 /**
  * 固定映射（纯函数）。未知工具名或非法参数抛出 ActionMappingError。
  * 未来 Self-Harness 不得修改本映射。
@@ -93,6 +114,38 @@ export function toEnvironmentAction(
       assertSafeActionArg(asin, "asin");
       return `click[${asin}]`;
     }
+    case "select_option": {
+      const value = args["value"];
+      if (typeof value !== "string") {
+        throw new ActionMappingError("select_option 需要字符串参数 value");
+      }
+      assertSafeActionArg(value, "value");
+      return `click[${value}]`;
+    }
+    case "view_description":
+      requireNoArgs(args, toolName);
+      return "click[Description]";
+    case "view_features":
+      requireNoArgs(args, toolName);
+      return "click[Features]";
+    case "view_reviews":
+      requireNoArgs(args, toolName);
+      return "click[Reviews]";
+    case "view_attributes":
+      requireNoArgs(args, toolName);
+      return "click[Attributes]";
+    case "next_page":
+      requireNoArgs(args, toolName);
+      return "click[Next >]";
+    case "prev_page":
+      requireNoArgs(args, toolName);
+      return "click[< Prev]";
+    case "back_to_search":
+      requireNoArgs(args, toolName);
+      return "click[Back to Search]";
+    case "buy_now":
+      requireNoArgs(args, toolName);
+      return "click[Buy Now]";
     case "finish_without_purchase": {
       const reason = args["reason"];
       if (reason !== "no_suitable_product") {

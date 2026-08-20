@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_id": "run-max-steps",
+  "task_id": 0,
+  "harness_version": "shopping-base@0.0.0",
+  "timestamp": "2026-08-20T09:21:54.951Z",
+  "environment_terminal": {
+    "done": false,
+    "over": false,
+    "termination_reason": null
+  },
+  "reward": null,
+  "reward_type": null,
+  "reward_valid": null,
+  "purchase_asin": null,
+  "tool_steps": 3,
+  "guard_rejections": 0,
+  "max_steps_triggered": true,
+  "failure_labels": [
+    "max_steps"
+  ],
+  "release_status": "released"
+}

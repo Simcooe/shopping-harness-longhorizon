@@ -89,12 +89,29 @@ apply(ctx)                           ctx.tools.register(三个冻结工具)
 
 ### 已知限制（如实记录）
 
-- 环境任务指令（reset 返回的 `instruction`，即具体购买目标）目前被冻结
-  层脱敏策略丢弃，不向模型暴露；模型收到的是 runner 注入的通用指令。
-  把任务指令安全注入模型上下文（区分 reset 的 goal 文本与 interact 的
-  页面观测）是下一增量，需要 environment/observation 冻结层的一次
-  显式版本化扩展。
+- ~~环境任务指令不向模型暴露~~：**Phase 6 已解决**——任务指令（reset 的
+  instruction，用户可见任务文本）经 actor 通道注入首个工具结果；页面观测
+  经 `observation_state` 白名单投影进入工具结果。仍保持剔除：goal 结构、
+  gold asin、reward/reward_detail、purchase、persona 等隐藏字段。
 - `MODEL_NAME` 与 temperature 目前只记录进 run metadata；与 adapter
   模型选择/采样参数的绑定需验证 profile 的 llm 配置行后接入。
 - `check:dsh` 仍是离线装配校验；真实 boot 的验证以用户 `.env` 就绪后的
   live 运行为准。
+- 模型退出时若未触发 terminal（如达到 DSH 轮次上限），evaluator record
+  不会落盘（actor trace 已逐事件落盘）；环境租约由 runner EXIT trap 的
+  `release_all` 兜底。
+
+## Phase 6 双轨迹
+
+- **actor trace**：`trajectories/actor/<run_id>.jsonl`（schema v2）。
+  事件：run_start / task_instruction / tool_call / guard_rejection /
+  observation / terminal。与模型实际可见内容一致，供未来失败挖掘。
+- **evaluator record**：`evaluation/runs/<run_id>.json`。
+  环境 reward / reward 类型 / 有效性 / 终止原因 / 步数 / guard 统计 /
+  失败标签（wrong_purchase / repeat_loop / max_steps / early_abstain /
+  graceful_stop / environment_error / tool_error / gold_purchase /
+  valid_alternative_purchase / unknown）。
+- **隔离是结构性的**：evaluator 证据只经 `ShopSimulatorHttpClient` 的
+  `evaluatorSink` 流入 `EvaluatorCollector`；`register.ts`/tools/observation
+  层的类型上不存在 evaluator 数据入口，因此不可能作为同一任务的
+  tool result 或 prompt 回灌模型。

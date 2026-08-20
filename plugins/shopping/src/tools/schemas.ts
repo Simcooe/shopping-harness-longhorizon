@@ -1,11 +1,9 @@
 /**
- * 三个 model-facing 购物工具的冻结 schema（冻结层）。
+ * 12 个 model-facing 购物工具的冻结 schema（冻结层）。
  *
- * 以严格 JSON Schema 为唯一事实来源：additionalProperties: false，
- * 所有参数必填，禁止额外参数。register.ts 负责把它转换成 DSH 工具
- * 注册所需的形态，不在此处引入 DSH 依赖。
- *
- * 描述文本只说明工具语义与安全约束，不包含任何任务 goal 或策略。
+ * 严格 JSON Schema 为唯一事实来源：additionalProperties: false，
+ * 禁止额外参数。register.ts 负责转换为 DSH 注册形态。
+ * 描述文本只说明工具语义与安全约束，不含任务 goal 或策略。
  */
 
 import type { ShoppingToolName } from "./actions.ts";
@@ -18,7 +16,6 @@ export interface ToolJsonSchema {
     minLength?: number;
     maxLength?: number;
     enum?: readonly string[];
-    pattern?: string;
   }>;
   required: readonly string[];
   additionalProperties: false;
@@ -30,10 +27,13 @@ export interface ShoppingToolDefinition {
   parameters: ToolJsonSchema;
 }
 
+function noArgSchema(): ShoppingToolDefinition["parameters"] {
+  return { type: "object", properties: {}, required: [], additionalProperties: false };
+}
+
 export const SEARCH_PRODUCTS_TOOL: ShoppingToolDefinition = {
   name: "search_products",
-  description:
-    "在商品库中按关键词搜索商品，返回结果页。参数 query 为搜索关键词。",
+  description: "在商品库中按关键词搜索商品，返回结果页。参数 query 为搜索关键词。",
   parameters: {
     type: "object",
     properties: {
@@ -52,7 +52,7 @@ export const SEARCH_PRODUCTS_TOOL: ShoppingToolDefinition = {
 export const OPEN_PRODUCT_TOOL: ShoppingToolDefinition = {
   name: "open_product",
   description:
-    "打开搜索结果中的某个商品详情页。参数 asin 为目标商品 ID（结果页可见的商品标识）。",
+    "打开当前结果页中可见的某个商品详情页。参数 asin 必须是当前页面可见的商品标识。",
   parameters: {
     type: "object",
     properties: {
@@ -66,6 +66,74 @@ export const OPEN_PRODUCT_TOOL: ShoppingToolDefinition = {
     required: ["asin"],
     additionalProperties: false,
   },
+};
+
+export const SELECT_OPTION_TOOL: ShoppingToolDefinition = {
+  name: "select_option",
+  description:
+    "在商品详情页选择一个规格选项（如颜色、尺码）。参数 value 必须是当前页面可见的选项值。",
+  parameters: {
+    type: "object",
+    properties: {
+      value: {
+        type: "string",
+        description: "选项值，必须来自当前页面可见选项。",
+        minLength: 1,
+        maxLength: 400,
+      },
+    },
+    required: ["value"],
+    additionalProperties: false,
+  },
+};
+
+export const VIEW_DESCRIPTION_TOOL: ShoppingToolDefinition = {
+  name: "view_description",
+  description: "在商品详情页查看 Description 子页。要求当前页面存在 Description 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const VIEW_FEATURES_TOOL: ShoppingToolDefinition = {
+  name: "view_features",
+  description: "在商品详情页查看 Features 子页。要求当前页面存在 Features 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const VIEW_REVIEWS_TOOL: ShoppingToolDefinition = {
+  name: "view_reviews",
+  description: "在商品详情页查看 Reviews 子页。要求当前页面存在 Reviews 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const VIEW_ATTRIBUTES_TOOL: ShoppingToolDefinition = {
+  name: "view_attributes",
+  description: "在商品详情页查看 Attributes 子页。要求当前页面存在 Attributes 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const NEXT_PAGE_TOOL: ShoppingToolDefinition = {
+  name: "next_page",
+  description: "在结果页翻到下一页。要求当前页面存在 Next 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const PREV_PAGE_TOOL: ShoppingToolDefinition = {
+  name: "prev_page",
+  description: "在结果页翻到上一页。要求当前页面存在 Prev 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const BACK_TO_SEARCH_TOOL: ShoppingToolDefinition = {
+  name: "back_to_search",
+  description: "返回搜索首页（不清除已探索进度）。要求当前页面存在 Back to Search 按钮。",
+  parameters: noArgSchema(),
+};
+
+export const BUY_NOW_TOOL: ShoppingToolDefinition = {
+  name: "buy_now",
+  description:
+    "购买当前商品。购买前必须已选择全部必需规格；要求当前页面存在 Buy Now 按钮。",
+  parameters: noArgSchema(),
 };
 
 export const FINISH_WITHOUT_PURCHASE_TOOL: ShoppingToolDefinition = {
@@ -89,6 +157,15 @@ export const FINISH_WITHOUT_PURCHASE_TOOL: ShoppingToolDefinition = {
 export const SHOPPING_TOOLS: readonly ShoppingToolDefinition[] = [
   SEARCH_PRODUCTS_TOOL,
   OPEN_PRODUCT_TOOL,
+  SELECT_OPTION_TOOL,
+  VIEW_DESCRIPTION_TOOL,
+  VIEW_FEATURES_TOOL,
+  VIEW_REVIEWS_TOOL,
+  VIEW_ATTRIBUTES_TOOL,
+  NEXT_PAGE_TOOL,
+  PREV_PAGE_TOOL,
+  BACK_TO_SEARCH_TOOL,
+  BUY_NOW_TOOL,
   FINISH_WITHOUT_PURCHASE_TOOL,
 ];
 

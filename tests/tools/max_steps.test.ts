@@ -31,7 +31,7 @@ function lifecycleFetch() {
         }), { status: 200 });
       case "interact":
         return new Response(JSON.stringify({
-          result: { done: false, reward: 0, env_idx: 5, over: false, observation_state: {} },
+          result: { done: false, reward: 0, env_idx: 5, over: false, observation_state: { page_type: 'search_results', search_available: true, actions: [] } },
         }), { status: 200 });
       case "release_one":
         return new Response(JSON.stringify({
@@ -125,7 +125,7 @@ test("懒注入记录器：SHOPPING_RUN_ID 生效且轨迹脱敏", async () => {
     await registry.byName("search_products").execute({ query: "枕头" }, exec);
     runtime.recorder?.close();
 
-    const trajectory = readFileSync(join(dir, "run-live-test.jsonl"), "utf-8");
+    const trajectory = readFileSync(join(dir, "actor", "run-live-test.jsonl"), "utf-8");
     assert.ok(trajectory.includes('"run_id":"run-live-test"'));
     assert.ok(trajectory.includes('"task_id":0'));
     for (const forbidden of ["goal", "gold", "reward_detail", "MODEL_API_KEY"]) {
@@ -164,8 +164,8 @@ test("步数预算：超过 maxSteps 抛 MaxStepsError，release 且记录 max_s
     // release 被调用（finally 路径覆盖）
     assert.equal(captured[captured.length - 1]?.["action"], "release_one");
     runtime.recorder?.close();
-    const trajectory = readFileSync(join(dir, "run-max-steps.jsonl"), "utf-8");
-    assert.ok(trajectory.includes('"termination_reason":"max_steps"'));
+    const trajectory = readFileSync(join(dir, "actor", "run-max-steps.jsonl"), "utf-8");
+    assert.ok(trajectory.includes('"local_reason":"max_steps"'));
     assert.ok(trajectory.includes('"release_status":"released"'));
   } finally {
     rmSync(dir, { recursive: true, force: true });

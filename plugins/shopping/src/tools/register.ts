@@ -1,40 +1,29 @@
 /**
- * 三个购物工具在 DSH 工具注册表中的注册（冻结层）。
+ * 12 个购物工具在 DSH 工具注册表中的注册（冻结层）。
  *
- * 依据固定 DSH commit（见 DEPENDENCIES.md）中的真实 API：
- *   - dsh/packages/core/tools/src/index.ts：
- *       ToolRuntime.register(definition: ToolDefinition): () => void
- *       ToolDefinition extends ToolSchema {
- *         output: { schema: JsonSchemaNode; render(args, value): ContentBlock[] },
- *         execute(args: unknown, exec: ToolRunContext): Promise<unknown>
- *       }
- *   - dsh/packages/llm/llm/src/types.ts：
- *       ToolSchema { name; description; parameters: Record<string, unknown> }
- *       TextBlock { type: 'text'; text: string }
- *   - 注册表接受"原始 JSON Schema + 自行负责输入校验"的 ToolDefinition
- *     （同一文件注释），因此无需依赖 defineTool/ValueSchemaSpec DSL。
+ * 依据固定 DSH commit 的真实 API：ToolRuntime.register(ToolDefinition)，
+ * ToolDefinition = {name, description, parameters(JSON Schema),
+ * output:{schema, render}, execute(args, exec)}（原始 JSON Schema 形态，
+ * 注册方自行负责输入校验）。结构类型逐字段对照固定源码，避免依赖
+ * 版本漂移的 npm 包；详见 docs/dsh-shopping-plugin.md。
  *
- * 为什么本地声明结构类型而不 import @deepseek-ai/dsh-tools：
- *   npm registry 上该包版本（0.0.1-rc.1）落后于本仓库固定的 commit
- *   （0.1.0-rc.7），直接安装会引入 API 漂移。结构类型逐字段对照固定
- *   源码核实；若未来依赖对齐，可无缝换回官方 import。
- *
- * 本层不创建任务、不决定 task_id；handler 从 ShoppingRuntime 的当前
- * 会话获取 env_idx（task_id 由外部 runner 注入）。
+ * 双通道纪律（Phase 6）：execute 只接触 actor 通道（session.interact 的
+ * 返回值在类型上就只有 actor 字段）；evaluator 结果证据经 client 的
+ * evaluatorSink 直连 runtime.evaluator，本文件拿不到、也不传递它。
  */
 
 import { toEnvironmentAction } from "./actions.ts";
 import { SHOPPING_TOOLS, validateToolArgs, type ShoppingToolDefinition } from "./schemas.ts";
+import { GuardRejectionError } from "./guard.ts";
 import { MaxStepsError, type ShoppingRuntime } from "./runtime.ts";
 import {
   projectInteract,
   renderFinishSummary,
-  renderInteractSummary,
+  renderToolSummary,
 } from "../observation/project.ts";
 
 // ---- 与固定 DSH 源码一致的结构类型 -----------------------------------------
 
-/** 对应 TextBlock（dsh-llm types.ts）。 */
 export interface DshTextBlock {
   type: "text";
   text: string;
@@ -43,18 +32,15 @@ export interface DshTextBlock {
 export type DshContentBlock = DshTextBlock;
 export type DshJsonValue = unknown;
 
-/** 对应 ToolOutputDefinition（dsh-tools index.ts）。 */
 export interface DshToolOutputDefinition {
   schema: Record<string, unknown>;
   render(args: unknown, value: DshJsonValue): DshContentBlock[];
 }
 
-/** 对应 ToolRunContext 的最小可运行子集（dsh-tools index.ts）。 */
 export interface DshToolRunContextLike {
   signal: AbortSignal;
 }
 
-/** 对应 ToolDefinition（dsh-tools index.ts）+ ToolSchema（dsh-llm types.ts）。 */
 export interface DshToolDefinition {
   name: string;
   description: string;
@@ -63,7 +49,6 @@ export interface DshToolDefinition {
   execute(args: unknown, exec: DshToolRunContextLike): Promise<unknown>;
 }
 
-/** 对应 ToolRuntime.register 的注册面（dsh-tools index.ts）。 */
 export interface DshToolRegistryLike {
   register(definition: DshToolDefinition): () => void;
 }
@@ -91,7 +76,6 @@ function renderOutput(_args: unknown, value: DshJsonValue): DshContentBlock[] {
   return [{ type: "text", text: output.summary }];
 }
 
-/** 构建一个冻结工具定义。 */
 function buildDefinition(
   tool: ShoppingToolDefinition,
   runtime: ShoppingRuntime,
@@ -109,45 +93,62 @@ function buildDefinition(
       if (problems.length > 0) {
         throw new Error(`参数无效: ${problems.join("; ")}`);
       }
-      const environmentAction = toEnvironmentAction(
-        tool.name,
-        args as Record<string, unknown>,
-      );
+      const typedArgs = args as Record<string, unknown>;
 
+      // 1. 冻结 guard：基于模型上一轮实际看到的 actor-visible 观测校验。
+      //    拒绝时不调用 ShopSimulator、不消耗步数，只写 guard_rejection。
+      runtime.guardCheck(tool.name, typedArgs);
+
+      const environmentAction = toEnvironmentAction(tool.name, typedArgs);
       const session = await runtime.ensureSession();
       const recorder = runtime.recorder;
+
+      runtime.evaluator.noteToolStep();
       recorder?.record({
         event: "tool_call",
         tool: tool.name,
-        args: args as Record<string, unknown>,
+        args: typedArgs,
         environment_action: environmentAction,
       });
 
+      runtime.beginCall();
       try {
         runtime.noteStep();
         const result = await session.interact(environmentAction);
         const projected = projectInteract(result);
-        const summary = tool.name === "finish_without_purchase"
-          ? renderFinishSummary((args as { reason: string }).reason)
-          : renderInteractSummary(projected, environmentAction);
+        runtime.observe(result.observation);
 
         recorder?.record({
-          event: "step",
-          environment_action: environmentAction,
-          observation_summary: {
-            env_idx: projected.envIdx,
-            done: projected.done,
-            over: projected.over,
-          },
+          event: "observation",
+          page_type: result.observation?.pageType ?? "unknown",
           done: projected.done,
+          observation: result.observation?.state ?? {},
         });
 
+        // 任务指令一次性注入首个工具结果（模型真实可见 → actor trace 一致）
+        const taskInstruction = runtime.consumeTaskInstruction();
+        const summary = tool.name === "finish_without_purchase"
+          ? renderFinishSummary(String(typedArgs["reason"]))
+          : renderToolSummary({
+            environmentAction,
+            done: projected.done,
+            taskInstruction,
+            observation: result.observation,
+          });
+
         if (projected.done || projected.over) {
+          if (projected.over) {
+            runtime.evaluator.noteOver();
+          }
+          runtime.markTerminal();
           await session.release();
+          runtime.finalizeEvaluator(
+            session.releaseError === null ? "released" : "release_failed",
+          );
           recorder?.record({
             event: "terminal",
             done: projected.done,
-            termination_reason: projected.done ? "environment_done" : "session_over",
+            local_reason: projected.done ? "environment_done" : "session_over",
             release_status: session.releaseError === null ? "released" : "release_failed",
           });
         }
@@ -159,12 +160,30 @@ function buildDefinition(
         };
         return output;
       } catch (cause) {
-        // 异常路径也保证归还租约
+        // 异常路径也保证归还租约，并写 terminal + evaluator
+        if (cause instanceof MaxStepsError) {
+          runtime.evaluator.noteMaxSteps();
+        } else if (!(cause instanceof GuardRejectionError)) {
+          runtime.evaluator.noteLocalError(
+            "code" in (cause as { code?: string })
+              && (cause as { code?: string }).code === "environment"
+              ? "environment_error"
+              : "tool_error",
+          );
+        }
+        runtime.markTerminal();
         await session.release();
+        runtime.finalizeEvaluator(
+          session.releaseError === null ? "released" : "release_failed",
+        );
         recorder?.record({
           event: "terminal",
           done: false,
-          termination_reason: cause instanceof MaxStepsError ? "max_steps" : "tool_error",
+          local_reason: cause instanceof MaxStepsError
+            ? "max_steps"
+            : cause instanceof GuardRejectionError
+              ? "guard"
+              : "tool_error",
           release_status: session.releaseError === null ? "released" : "release_failed",
           error_code: "code" in (cause as { code?: string })
             ? String((cause as { code?: string }).code)
@@ -173,19 +192,21 @@ function buildDefinition(
               : "unknown",
         });
         throw cause;
+      } finally {
+        runtime.endCall();
       }
     },
   };
 }
 
-/** 构建三个冻结工具定义（schemas 与映射均来自冻结模块）。 */
+/** 构建 12 个冻结工具定义（schemas 与映射均来自冻结模块）。 */
 export function buildShoppingToolDefinitions(
   runtime: ShoppingRuntime,
 ): DshToolDefinition[] {
   return SHOPPING_TOOLS.map((tool) => buildDefinition(tool, runtime));
 }
 
-/** 把三个工具注册进给定的注册表，返回 disposer。 */
+/** 把全部工具注册进给定的注册表，返回 disposer。 */
 export function registerShoppingTools(
   registry: DshToolRegistryLike,
   runtime: ShoppingRuntime,

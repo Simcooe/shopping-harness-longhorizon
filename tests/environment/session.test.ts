@@ -41,8 +41,8 @@ function lifecycleFetch(opts: {
         return new Response(JSON.stringify({
           result: {
             env_idx: envIdx,
-            instruction: SECRET,
-            goal_options: { 颜色: ["红"] },
+            instruction: "TASK-INSTRUCTION-visible",
+            goal_options: { 颜色: [SECRET] },
             environment_version: "shopsimulator-environment-v2.1",
             message: "Task 0 started",
           },
