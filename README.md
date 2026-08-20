@@ -121,4 +121,8 @@ python3 scripts/smoke_environment.py
 
 - 脚手架与依赖固定：完成。
 - 内嵌 ShopSimulator 独立启动与 HTTP smoke test：完成（`scripts/`）。
-- 完整 agent、rollout、patch 生成与 gate：未实现，见各目录 README 占位说明。
+- shopping plugin environment adapter（HTTP client + session 生命周期）：
+  完成，mock 单元测试通过；`pnpm --dir plugins/shopping smoke-shopping-adapter --live`
+  可在环境运行时做 live 验证。
+- tools action mapping、DSH tool registration、完整 agent、rollout、
+  patch 生成与 gate：未实现，见各目录 README 占位说明。

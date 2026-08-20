@@ -10,6 +10,9 @@ __pycache__/
 # 本地环境配置（.env 绝不入库；模板为 .env.example）
 .env
 
+# shopping plugin 构建产物（源码在 plugins/shopping/src/）
+plugins/shopping/lib/
+
 # ---- environment/ShopSimulator 运行产物（源码/配置/压缩数据/README/EMBEDDED_SOURCE.json 不忽略）----
 environment/ShopSimulator/.venv-shopsim/
 environment/ShopSimulator/.venv-shopsim-v2/

@@ -8,21 +8,35 @@ shopping plugin：本项目自进化（Self-Harness）的载体。插件内部�
 ```
 plugins/shopping/
 ├── package.json            # private 包；按 DSH bundle 机制声明 dsh.bundle.patch
+├── tsconfig.json           # 构建配置（ESM/NodeNext/strict，tsc 输出 lib/）
 ├── cordis.patch.yml        # 空 Cordis patch 占位（未声明任何 overlay 键）
 └── src/
     ├── index.ts            # 空入口占位：不注册工具、不调用环境
-    ├── environment/        # 冻结层：环境接入与 HTTP client
+    ├── environment/        # 冻结层：环境接入与 HTTP client（已实现 adapter）
     ├── tools/              # 冻结层：工具真实 schema 与 action mapping
     ├── observation/        # 冻结层：观测解析与结构化
     ├── rollout/            # 冻结层：rollout 执行与轨迹审计
     └── policy/             # 可进化层：唯一允许 Self-Harness 修改的源码目录
 ```
 
-注：`tsconfig.json` 暂未创建（DSH 实际加载方式不直接消费 TS 源码）。
+构建与测试（本阶段只需可构建、可测试，不要求被 DSH 加载）：
+
+```bash
+pnpm --dir plugins/shopping install    # 首次
+pnpm --dir plugins/shopping typecheck
+pnpm --dir plugins/shopping build      # tsc → lib/
+pnpm --dir plugins/shopping test       # mock 单元测试（node:test）
+```
 
 ## 冻结层（不允许 Self-Harness patch）
 
-- `src/environment/`：ShopSimulator 环境接入、HTTP client。
+- `src/environment/`：ShopSimulator 环境接入与 HTTP client。
+  **已实现**（adapter：protocol/client/session），是本插件第一个落地的冻结层。
+  - 只从 `SHOPSIM_BASE_URL` 读取地址（默认 `http://127.0.0.1:5700`），
+    ShopSimulator 不使用任何 API key。
+  - 当前只验证 HTTP 生命周期，不接 DSH、模型或 Self-Harness。
+  - 工具调用到环境 action 的映射不属于本层：未来由 `src/tools/` 将模型
+    工具调用映射为 `search[...]` / `click[...]` / `finish[...]`。
 - `src/tools/`：工具**真实 schema**，以及 search/open/buy 等工具到环境
   action 的映射；不得修改工具真实语义。
 - `src/observation/`：观测解析与结构化。
@@ -72,7 +86,7 @@ DSH 的外部扩展机制是 **profile bundle**（依据：
 - 未执行过 `dsh plugin add`，未安装任何依赖，无 lockfile；
 - `src/index.ts` 只有空导出（与 `@deepseek-ai/dsh-base` 的入口形态一致），
   不注册工具、不调用环境；
-- 暂不提供 `tsconfig.json`：DSH 加载的是构建产物与 patch YAML，不直接
-  消费 TS 源码；待真正实现与构建管线落地时再引入；
+- `tsconfig.json` 仅服务于本包的构建与测试（ESM/NodeNext/strict）；
+  DSH 加载的是构建产物与 patch YAML，不直接消费 TS 源码；
 - DSH 处于 developer preview（固定 SHA，见 `DEPENDENCIES.md`），接入方式
   可能随上游变化。
