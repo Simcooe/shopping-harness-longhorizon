@@ -102,7 +102,11 @@ src.dependencies["@shopping-harness/plugin-shopping"] = "file:" + process.argv[1
 fs.writeFileSync(process.argv[2], JSON.stringify(src, null, 2) + "\n");
 ' "${REPO_ROOT}/plugins/shopping" "${PROFILE_DIR}/package.json"
 cp harnesses/base/cordis.patch.yml "${PROFILE_DIR}/cordis.patch.yml"
-printf 'nodeLinker: hoisted\nautoInstallPeers: false\n' > "${PROFILE_DIR}/pnpm-workspace.yaml"
+# 与固定 DSH commit 的 initProfile 完全一致（app-boot/profile.ts 的
+# PROFILE_PNPM_WORKSPACE）：pnpm ≥10 从 pnpm-workspace.yaml 读设置，
+# 且必须包含 packages 字段。
+printf 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n' \
+  > "${PROFILE_DIR}/pnpm-workspace.yaml"
 
 # CLI（官方发布的固定版本 0.1.0-rc.7，与固定 DSH SHA 一致）
 cat > "${CLI_DIR}/package.json" <<'EOF'
