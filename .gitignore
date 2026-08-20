@@ -17,6 +17,9 @@ plugins/shopping/lib/
 trajectories/*.jsonl
 trajectories/**/*.jsonl
 
+# live runner 运行时目录（DSH_HOME/CLI/profile 安装；绝不入库）
+.live/
+
 # ---- environment/ShopSimulator 运行产物（源码/配置/压缩数据/README/EMBEDDED_SOURCE.json 不忽略）----
 environment/ShopSimulator/.venv-shopsim/
 environment/ShopSimulator/.venv-shopsim-v2/

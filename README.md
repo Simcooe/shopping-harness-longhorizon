@@ -117,6 +117,41 @@ python3 scripts/smoke_environment.py
 - 注意：snapshot 的 `pack_api.py` 绑定 `0.0.0.0`（上游冻结行为），本项目所有
   调用默认走 `127.0.0.1`。
 
+## 运行一条真实任务（需要用户显式填写模型配置 + 显式 --live）
+
+```bash
+cd /Users/ywwl/self/shopping-harness-longhorizon
+
+# 仅首次：准备 ShopSimulator 环境
+bash scripts/setup_environment.sh
+
+# 用户填写模型连接信息；该文件不会提交
+cp .env.example .env
+# 编辑 .env，填写 MODEL_BASE_URL / MODEL_API_KEY / MODEL_NAME
+
+# 终端 A：启动 ShopSimulator
+bash scripts/start_environment.sh
+
+# 终端 B：运行一条真实开发任务
+bash scripts/run_live_task.sh --task-id 0 --live
+```
+
+要点：
+
+- 未传 `--live` 不会调用模型；缺 `.env` 或任一模型字段会明确报错且不调用模型。
+- `task_id` 必须属于 `configs/tasks/development.json`，由 runner 注入，
+  模型不得选择；最大环境步数与工具白名单来自 `configs/live-task.example.yml`。
+- runner 使用官方发布的 `@deepseek-ai/dsh@0.1.0-rc.7` CLI（与固定 DSH SHA
+  版本一致）+ `harnesses/base` 的 shopping-base profile；运行时安装在
+  `.live/`（gitignore）。模型密钥映射为官方 adapter 读取的
+  `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`。
+- 任何退出路径都会尽力调用 ShopSimulator `release`（finally 语义）。
+- 脱敏轨迹写入 `trajectories/<run_id>.jsonl`（不入库）。
+- 已知限制：环境任务指令（reset 返回的 instruction）当前不向模型暴露
+  （冻结层脱敏策略）；把任务指令安全注入模型上下文是下一增量，
+  见 `docs/dsh-shopping-plugin.md`。
+- Final-200 Clean 绝不进入本流程。
+
 ## 当前状态
 
 - 脚手架与依赖固定：完成。
@@ -129,9 +164,9 @@ python3 scripts/smoke_environment.py
   经 `ctx.tools.register` 注册；`harnesses/base/` 为 shopping-base
   profile。离线装配检查：`pnpm --dir plugins/shopping check:dsh`。
   机制与限制见 `docs/dsh-shopping-plugin.md`。
-- **尚未**接模型、未执行真实 DSH boot / Agent rollout：下一步是本地填写
-  模型 API 配置（环境变量，绝不入库）后，真实运行一条
-  DSH + 模型 + ShopSimulator 任务。
+- live runner 已就绪：用户填写 `.env` 模型配置并显式 `--live` 后，
+  `bash scripts/run_live_task.sh --task-id 0 --live` 运行单条真实任务
+  （见上节）。本仓库未提交任何 `.env`，未代为执行模型调用。
 - Self-Harness（候选 patch 生成与 gate）：未实现，见各目录 README。
 
 ## 本地开发流程

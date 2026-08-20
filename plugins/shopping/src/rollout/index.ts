@@ -22,3 +22,14 @@ export {
   loadDevelopmentTaskSource,
   type DevelopmentTaskSource,
 } from "./task_source.ts";
+
+export {
+  LiveConfigError,
+  REQUIRED_MODEL_ENV_KEYS,
+  assertMetadataHasNoSecrets,
+  buildRunMetadata,
+  missingModelEnvKeys,
+  validateLiveTaskConfig,
+  type LiveTaskConfig,
+  type RunMetadata,
+} from "./live_config.ts";

@@ -25,7 +25,7 @@
 
 import { toEnvironmentAction } from "./actions.ts";
 import { SHOPPING_TOOLS, validateToolArgs, type ShoppingToolDefinition } from "./schemas.ts";
-import type { ShoppingRuntime } from "./runtime.ts";
+import { MaxStepsError, type ShoppingRuntime } from "./runtime.ts";
 import {
   projectInteract,
   renderFinishSummary,
@@ -114,7 +114,7 @@ function buildDefinition(
         args as Record<string, unknown>,
       );
 
-      const session = runtime.requireSession();
+      const session = await runtime.ensureSession();
       const recorder = runtime.recorder;
       recorder?.record({
         event: "tool_call",
@@ -124,6 +124,7 @@ function buildDefinition(
       });
 
       try {
+        runtime.noteStep();
         const result = await session.interact(environmentAction);
         const projected = projectInteract(result);
         const summary = tool.name === "finish_without_purchase"
@@ -163,11 +164,13 @@ function buildDefinition(
         recorder?.record({
           event: "terminal",
           done: false,
-          termination_reason: "tool_error",
+          termination_reason: cause instanceof MaxStepsError ? "max_steps" : "tool_error",
           release_status: session.releaseError === null ? "released" : "release_failed",
           error_code: "code" in (cause as { code?: string })
             ? String((cause as { code?: string }).code)
-            : "unknown",
+            : cause instanceof MaxStepsError
+              ? "max_steps"
+              : "unknown",
         });
         throw cause;
       }

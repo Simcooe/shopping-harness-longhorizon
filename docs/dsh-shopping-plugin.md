@@ -68,10 +68,33 @@ apply(ctx)                           ctx.tools.register(三个冻结工具)
 | （未来）安装外部 bundle | `dsh plugin --profile shopping-base add <path>` |
 | （未来）单任务运行（需模型配置） | `dsh --profile shopping-base "<task>"` |
 
-## 限制（如实记录，不伪造成功）
+## live task 运行路径（scripts/run_live_task.sh）
 
-- 尚未执行真实 Cordis Loader boot：npm registry 的 DSH 包版本滞后于
-  固定 SHA（见 `harnesses/base/README.md`），profile 安装链路暂不可用。
-- `check:dsh` 验证的是 manifest/patch 形状与 `apply()` 注册结果，
-  不是完整执行管线（权限、超时、guard、session 事件流）。
-- 尚未接模型：没有任何 `MODEL_BASE_URL`/`MODEL_API_KEY` 使用路径。
+依据固定 DSH commit 的真实能力（`dsh/CLAUDE.md`：官方 adapter 读取
+`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`）：
+
+1. runner 加载未提交的 `.env`，把 `MODEL_API_KEY/MODEL_BASE_URL` 映射为
+   `DEEPSEEK_API_KEY/DEEPSEEK_BASE_URL` 传给 headless DSH；
+2. DSH CLI 使用官方发布的 `@deepseek-ai/dsh@0.1.0-rc.7`（npm registry
+   现已发布与固定 SHA 一致的 0.1.0-rc.7 系列；早前"registry 滞后"的
+   限制已解除），安装在 `.live/cli/`（gitignore）；
+3. profile 由 `harnesses/base/` 复制到 `.live/dsh-home/profiles/shopping-base`
+   （plugin 依赖改写为绝对 `file:` 路径），`pnpm install` 安装 bundles；
+4. task_id 经 `SHOPPING_TASK_ID` 注入并由 plugin 懒会话校验
+   （必须属于 `configs/tasks/development.json`）；步数上限
+   `SHOPPING_MAX_STEPS`（live-task 配置默认 5）；轨迹经
+   `SHOPPING_RUN_ID` 懒注入 recorder 写入 `trajectories/`；
+5. finally 语义：runner 在任何退出路径尽力调用 ShopSimulator
+   `release_all`；工具层 terminal/异常路径另有 `release_one`。
+
+### 已知限制（如实记录）
+
+- 环境任务指令（reset 返回的 `instruction`，即具体购买目标）目前被冻结
+  层脱敏策略丢弃，不向模型暴露；模型收到的是 runner 注入的通用指令。
+  把任务指令安全注入模型上下文（区分 reset 的 goal 文本与 interact 的
+  页面观测）是下一增量，需要 environment/observation 冻结层的一次
+  显式版本化扩展。
+- `MODEL_NAME` 与 temperature 目前只记录进 run metadata；与 adapter
+  模型选择/采样参数的绑定需验证 profile 的 llm 配置行后接入。
+- `check:dsh` 仍是离线装配校验；真实 boot 的验证以用户 `.env` 就绪后的
+  live 运行为准。

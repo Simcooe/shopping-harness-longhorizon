@@ -25,7 +25,7 @@ export {
   type ToolJsonSchema,
 } from "./schemas.ts";
 
-export { ShoppingRuntime, type ShoppingRuntimeOptions } from "./runtime.ts";
+export { ShoppingRuntime, MaxStepsError, type ShoppingRuntimeOptions } from "./runtime.ts";
 
 export {
   buildShoppingToolDefinitions,

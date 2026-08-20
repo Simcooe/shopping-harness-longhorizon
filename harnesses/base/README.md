@@ -23,26 +23,21 @@ commit 的 `packages/boot/app-boot/src/profile.ts`）。
 → $DSH_HOME/cordis.patch.yml → --patch overlays（未来）
 ```
 
-## 未来的安装与运行步骤（本阶段未执行）
+## 未来的安装与运行步骤（由 scripts/run_live_task.sh 自动执行）
 
-1. 把本目录安装为 `$DSH_HOME/profiles/shopping-base`（`$DSH_HOME` 默认
-   `~/.dsh`，可用环境变量 `DSH_HOME` 覆盖）；
-2. 在 profile 目录内安装 bundle：
-   `dsh plugin --profile shopping-base add <本仓库>/plugins/shopping`
-   （相对路径 spec 以调用目录为锚点；安装器会校正 dependencies 与
-   `dsh.profile.bundles`）；
-3. 单任务运行（需要模型配置，见根 README 下一步）：
-   `dsh --profile shopping-base "<task>"`；
+1. 把本目录安装为 `$DSH_HOME/profiles/shopping-base`（runner 使用
+   `.live/dsh-home`，不触碰 `~/.dsh`）；plugin 依赖改写为绝对 `file:` 路径；
+2. 在 profile 目录内 `pnpm install` 安装 bundles（`@deepseek-ai/dsh-base@0.1.0-rc.7`、
+   `@deepseek-ai/dsh-headless@0.1.0-rc.7` 已在 npm registry 发布，与固定
+   SHA 版本一致；早前的 registry 滞后限制已解除）；
+3. 单任务运行（需要模型配置）：`dsh --profile shopping-base "<task>"`，
+   由 `bash scripts/run_live_task.sh --task-id <id> --live` 驱动；
 4. 无模型配置检查：`dsh --profile shopping-base --dump-config`
    （官方无 boot、不求值 `!!js` 的 config dump 入口）。
 
 ## 已知限制（如实记录）
 
-- npm registry 上 DSH 包版本滞后于本仓库固定的 commit：例如
-  `@deepseek-ai/dsh-base` registry 为 `0.0.1-rc.1`，而固定 SHA 对应
-  `0.1.0-rc.7`。在完成版本对齐（上游发布或本地构建链接）之前，
-  上面的安装步骤**尚不能成功执行**；本仓库内以
-  `scripts/check_dsh_shopping_plugin.ts`（在 plugins/shopping 内）做
-  离线装配校验替代。
+- 真实 boot 尚未在本仓库执行过：需要用户填写 `.env` 并显式 `--live`
+  授权；本仓库不代为调用模型。
 - task_id 由外部 runner 注入（`runner.json` 声明），模型不能决定任务。
-- 本阶段未运行任何真实 DSH boot、模型或环境。
+- 环境任务指令向模型暴露的通道是下一增量（见 docs/dsh-shopping-plugin.md）。
