@@ -148,7 +148,7 @@ test("注册完整 12 个冻结工具，disposer 生效", () => {
   assert.equal(registry.definitions.length, 0);
 });
 
-test("search：任务指令注入首个结果、页面观测可见、轨迹脱敏", async () => {
+test("search：页面观测可见、任务指令不进工具结果、轨迹脱敏", async () => {
   const dir = mkdtempSync(join(tmpdir(), "phase6-"));
   try {
     const { fetchImpl, captured } = lifecycleFetch();
@@ -167,8 +167,9 @@ test("search：任务指令注入首个结果、页面观测可见、轨迹脱�
 
     assert.equal(value.done, false);
     assert.equal(value.env_idx, 4);
-    // 模型可见：任务指令 + 页面商品
-    assert.ok(value.summary.includes(TASK_TEXT));
+    // 模型可见：页面商品；任务指令绝不进工具结果（bootstrap 时序）
+    assert.ok(!value.summary.includes(TASK_TEXT));
+    assert.ok(!value.summary.includes("【任务指令】"));
     assert.ok(value.summary.includes("B0PILLOW01"));
     assert.ok(value.summary.includes("儿童乳胶枕"));
     // 隐藏字段绝不进入工具结果
@@ -177,10 +178,10 @@ test("search：任务指令注入首个结果、页面观测可见、轨迹脱�
     assert.equal(captured[0]?.["action"], "reset");
     assert.equal(captured[1]?.["response"], "search[乳胶枕头]");
 
-    // actor trace：task_instruction + observation 已记录且脱敏
+    // actor trace：observation 已记录且脱敏（task_instruction 只由 bootstrap 记录）
     recorder.close();
     const trace = readFileSync(join(dir, "run-p6-1.jsonl"), "utf-8");
-    assert.ok(trace.includes('"event":"task_instruction"'));
+    assert.ok(!trace.includes('"event":"task_instruction"'));
     assert.ok(trace.includes('"event":"observation"'));
     assert.ok(trace.includes("B0PILLOW01"));
     assert.ok(!trace.includes(SECRET));
@@ -190,18 +191,6 @@ test("search：任务指令注入首个结果、页面观测可见、轨迹脱�
   }
 });
 
-test("任务指令只注入一次", async () => {
-  const { fetchImpl } = lifecycleFetch();
-  const runtime = makeRuntime(fetchImpl);
-  await runtime.openSession(0);
-  const registry = new Collector();
-  registerShoppingTools(registry, runtime);
-
-  const first = await registry.byName("search_products").execute({ query: "a" }, exec) as { summary: string };
-  const second = await registry.byName("search_products").execute({ query: "b" }, exec) as { summary: string };
-  assert.ok(first.summary.includes("【任务指令】"));
-  assert.ok(!second.summary.includes("【任务指令】"));
-});
 
 test("guard：open_product 的 asin 必须可见；拒绝不调用环境", async () => {
   const { fetchImpl, captured } = lifecycleFetch();

@@ -95,7 +95,7 @@ test("renderObservation：商品与按钮可见，隐藏字段不可见", () => 
   assert.ok(!text.includes(SECRET));
 });
 
-test("renderToolSummary：任务指令与页面观测组合为模型可见摘要", () => {
+test("renderToolSummary：只含动作与页面观测，绝不携带任务指令", () => {
   const observation = parseActorObservation({
     page_type: "product_detail",
     search_available: false,
@@ -107,22 +107,21 @@ test("renderToolSummary：任务指令与页面观测组合为模型可见摘要
   const summary = renderToolSummary({
     environmentAction: "click[B0X]",
     done: false,
-    taskInstruction: TASK_TEXT,
     observation,
   });
-  assert.ok(summary.includes(TASK_TEXT));
   assert.ok(summary.includes("B0X"));
   assert.ok(summary.includes("红色 | 蓝色"));
   assert.ok(summary.includes("Buy Now"));
+  // 任务指令由 bootstrap 注入 DSH 初始 prompt，工具结果绝不携带
+  assert.ok(!summary.includes(TASK_TEXT));
+  assert.ok(!summary.includes("【任务指令】"));
 
-  const noTask = renderToolSummary({
+  const done = renderToolSummary({
     environmentAction: "search[x]",
     done: true,
-    taskInstruction: null,
     observation: null,
   });
-  assert.ok(!noTask.includes("【任务指令】"));
-  assert.ok(noTask.includes("已结束"));
+  assert.ok(done.includes("已结束"));
 });
 
 test("adapter 结果投影只含状态字段", () => {

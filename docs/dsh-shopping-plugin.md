@@ -35,7 +35,7 @@ harnesses/base/package.json          dsh.profile.bundles: [..., "@shopping-harne
 plugins/shopping/package.json        dsh.bundle.patch: ./cordis.patch.yml
 plugins/shopping/cordis.patch.yml    insert: id=shopping, name=@shopping-harness/plugin-shopping
 plugins/shopping/lib/index.js        函数插件入口（name/inject=["tools"]/apply）
-apply(ctx)                           ctx.tools.register(三个冻结工具)
+apply(ctx)                           ctx.tools.register(12 个冻结工具)
 ```
 
 ## 工具注册 API
@@ -80,26 +80,32 @@ apply(ctx)                           ctx.tools.register(三个冻结工具)
    限制已解除），安装在 `.live/cli/`（gitignore）；
 3. profile 由 `harnesses/base/` 复制到 `.live/dsh-home/profiles/shopping-base`
    （plugin 依赖改写为绝对 `file:` 路径），`pnpm install` 安装 bundles；
-4. task_id 经 `SHOPPING_TASK_ID` 注入并由 plugin 懒会话校验
-   （必须属于 `configs/tasks/development.json`）；步数上限
-   `SHOPPING_MAX_STEPS`（live-task 配置默认 5）；轨迹经
-   `SHOPPING_RUN_ID` 懒注入 recorder 写入 `trajectories/`；
-5. finally 语义：runner 在任何退出路径尽力调用 ShopSimulator
-   `release_all`；工具层 terminal/异常路径另有 `release_one`。
+4. **bootstrap 时序（instruction 先于第一次模型决策）**：runner 在启动
+   DSH 之前对环境 reset 一次（整个 run 唯一一次），把 actor-safe 的
+   `{run_id, task_id, env_idx, instruction_text}` 写入
+   `.live/runs/<run_id>/bootstrap.json`（0600，按 run 隔离）；`instruction_text` 以
+   `<shopping_task>` 边界注入 DSH 初始 prompt，由
+   `scripts/launch_dsh_task.ts` 经 spawn argv 数组传递（无 shell 注入面）；
+   plugin 在 apply()（第一次模型请求之前）读取 bootstrap 并接管同一
+   `env_idx`，绝不二次 reset（`SHOPPING_BOOTSTRAP` 模式下插件自行 reset
+   会被拒绝）。task_id 必须属于 `configs/tasks/development.json`；
+   步数上限 `SHOPPING_MAX_STEPS`（live-task 配置默认 5）；
+5. cleanup（正常/异常/Ctrl-C）只 `release_one` bootstrap 的 `env_idx`
+   （幂等）；绝不使用 `release_all`，避免影响其他并发任务。
 
 ### 已知限制（如实记录）
 
-- ~~环境任务指令不向模型暴露~~：**Phase 6 已解决**——任务指令（reset 的
-  instruction，用户可见任务文本）经 actor 通道注入首个工具结果；页面观测
-  经 `observation_state` 白名单投影进入工具结果。仍保持剔除：goal 结构、
-  gold asin、reward/reward_detail、purchase、persona 等隐藏字段。
+- ~~环境任务指令不向模型暴露~~：**已解决（bootstrap 时序）**——runner 在
+  DSH 启动前 reset 并把 `instruction_text` 注入初始 prompt；模型第一次
+  决策即看到真实任务文本。隐藏字段（goal 结构、gold asin、reward、
+  purchase、persona 等）仍严格剔除，bootstrap 只保存 actor-safe 字段。
 - `MODEL_NAME` 与 temperature 目前只记录进 run metadata；与 adapter
   模型选择/采样参数的绑定需验证 profile 的 llm 配置行后接入。
 - `check:dsh` 仍是离线装配校验；真实 boot 的验证以用户 `.env` 就绪后的
   live 运行为准。
 - 模型退出时若未触发 terminal（如达到 DSH 轮次上限），evaluator record
   不会落盘（actor trace 已逐事件落盘）；环境租约由 runner EXIT trap 的
-  `release_all` 兜底。
+  `release_one`（bootstrap env_idx）兜底。
 
 ## Phase 6 双轨迹
 

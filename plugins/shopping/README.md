@@ -96,7 +96,7 @@ search；terminal 后拒绝一切调用；拒绝时不调用 ShopSimulator、不
 - 本包是 DSH 外部 **bundle**（`dsh.bundle.patch` 机制），
   `cordis.patch.yml` 挂载函数插件行；`src/index.ts` 以命名导出
   `name/inject/apply` 提供 Cordis 入口，`apply()` 通过
-  `ctx.tools.register` 注册三个冻结工具。
+  `ctx.tools.register` 注册 12 个冻结工具。
 - `harnesses/base/` 是引用本包的 **shopping-base profile**（DSH base +
   headless + shopping bundle + 冻结 system prompt）。
 - 装配正确性由 `pnpm --dir plugins/shopping check:dsh` 离线校验；

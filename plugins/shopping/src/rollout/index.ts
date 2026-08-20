@@ -46,3 +46,23 @@ export {
   type EvaluatorRecord,
   type FailureLabel,
 } from "./evaluator_record.ts";
+
+export {
+  BOOTSTRAP_SCHEMA_VERSION,
+  BootstrapAlreadyExistsError,
+  BootstrapError,
+  BootstrapNotFoundError,
+  BootstrapReadError,
+  assertValidOutputPath,
+  assertValidRunId,
+  buildBootstrap,
+  buildInitialTaskPrompt,
+  buildReleasePayload,
+  loadBootstrap,
+  resolveBootstrapPath,
+  resolveRecoveryPath,
+  writeBootstrap,
+  writeRecoveryRecord,
+  type BootstrapErrorCode,
+  type BootstrapSession,
+} from "./bootstrap.ts";

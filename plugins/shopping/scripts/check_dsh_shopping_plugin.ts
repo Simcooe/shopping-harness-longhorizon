@@ -10,7 +10,7 @@
  *      dsh.profile.bundles，依据固定 DSH commit 的 app-boot/profile.ts）；
  *   2. shopping bundle 的 cordis.patch.yml 包含插件挂载行；
  *   3. profile patch 设置了冻结的购物 system prompt（persona）；
- *   4. 直接导入插件入口并以最小注册表执行 apply()：验证三个工具
+ *   4. 直接导入插件入口并以最小注册表执行 apply()：验证 12 个工具
  *      已注册、名称/参数 schema 正确、output.render 产出文本块；
  *   5. runner.json 的任务来源声明可从 configs/tasks/development.json 加载。
  *
@@ -108,7 +108,7 @@ step(
   typeof persona === "string" ? `persona ${persona.length} 字符` : "缺少 persona",
 );
 
-// 4. 插件入口 apply() → 三个工具注册 ----------------------------------------------
+// 4. 插件入口 apply() → 12 个工具注册 ----------------------------------------------
 
 class CollectorRegistry implements DshToolRegistryLike {
   definitions: DshToolDefinition[] = [];

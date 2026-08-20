@@ -19,6 +19,7 @@ import type { ShoppingToolName } from "./actions.ts";
 import { RolloutRecorder } from "../rollout/recorder.ts";
 import { EvaluatorCollector, writeEvaluatorRecord } from "../rollout/evaluator_record.ts";
 import { assertInjectedTaskId, loadDevelopmentTaskSource } from "../rollout/task_source.ts";
+import type { BootstrapSession } from "../rollout/bootstrap.ts";
 
 /** 步数预算错误：run 以 max_steps 终止。 */
 export class MaxStepsError extends Error {
@@ -54,7 +55,6 @@ export class ShoppingRuntime {
   #session: ShoppingEnvironmentSession | null = null;
   #steps = 0;
   #guardState: GuardState = { observation: null, terminal: false, inFlight: false };
-  #taskInstruction: string | null = null;
   #taskId: number | null = null;
   #evaluatorWritten = false;
 
@@ -154,6 +154,7 @@ export class ShoppingRuntime {
   /**
    * 注入外部选择的 task_id 并领取会话（reset）。
    * 同一时刻只允许一个活动会话。
+   * 注意：live 路径不使用本方法（bootstrap 接管，全程只 reset 一次）。
    */
   async openSession(taskId: number): Promise<ShoppingEnvironmentSession> {
     if (this.#session !== null && !this.#session.released) {
@@ -163,22 +164,60 @@ export class ShoppingRuntime {
     const reset = await session.reset();
     this.#session = session;
     this.#taskId = taskId;
-    this.#taskInstruction = reset.task?.instructionText ?? null;
-    this.#recorder?.record({
-      event: "task_instruction",
-      instruction_text: this.#taskInstruction ?? "",
-    });
+    void reset;
     return session;
   }
 
   /**
-   * 懒会话：优先返回活动会话；否则从 runner 注入的 SHOPPING_TASK_ID
-   * 打开会话（task_id 必须属于声明的开发任务集）。
-   * 同时按 SHOPPING_RUN_ID 懒注入 actor 记录器。
+   * bootstrap 接管：外部 runner 已 reset 并写入 bootstrap 文件；
+   * plugin 在 DSH boot（第一次模型请求前）接管同一 env_idx，
+   * 并如实记录 actor trace：run_start → task_instruction
+   * （指令此刻已进入 DSH 初始任务 prompt）。绝不二次 reset。
+   */
+  adoptBootstrap(bootstrap: BootstrapSession): ShoppingEnvironmentSession {
+    if (this.#session !== null && !this.#session.released) {
+      throw new Error("已存在活动 shopping 会话，不能重复 bootstrap");
+    }
+    this.#session = ShoppingEnvironmentSession.adopted(
+      this.client,
+      bootstrap.task_id,
+      bootstrap.env_idx,
+    );
+    this.#taskId = bootstrap.task_id;
+
+    if (this.#recorder === null) {
+      this.#recorder = new RolloutRecorder({
+        dir: `${this.#trajectoriesDir}/actor`,
+        runId: bootstrap.run_id,
+        taskId: bootstrap.task_id,
+        harnessVersion: this.#harnessVersion,
+      });
+    }
+    this.#recorder.record({
+      event: "run_start",
+      profile: "shopping-base",
+      tools: [],
+      system_prompt_ref: "harnesses/base/system-prompt.md",
+    });
+    this.#recorder.record({
+      event: "task_instruction",
+      instruction_text: bootstrap.instruction_text,
+    });
+    return this.#session;
+  }
+
+  /**
+   * 懒会话：优先返回活动会话；bootstrap 模式下只接管不 reset；
+   * 非 bootstrap（开发/smoke）模式才允许懒 reset。
    */
   async ensureSession(): Promise<ShoppingEnvironmentSession> {
     if (this.#session !== null && !this.#session.released) {
       return this.#session;
+    }
+    if (this.#env["SHOPPING_BOOTSTRAP"] !== undefined) {
+      throw new Error(
+        "SHOPPING_BOOTSTRAP 模式：会话必须在 boot 阶段接管，插件不得自行 reset",
+      );
     }
     const rawTaskId = this.#env["SHOPPING_TASK_ID"]?.trim();
     if (rawTaskId === undefined || rawTaskId.length === 0) {
@@ -213,13 +252,6 @@ export class ShoppingRuntime {
       }
     }
     return this.openSession(taskId);
-  }
-
-  /** 任务指令一次性可见：首个工具结果注入后清空。 */
-  consumeTaskInstruction(): string | null {
-    const instruction = this.#taskInstruction;
-    this.#taskInstruction = null;
-    return instruction;
   }
 
   /** 写 evaluator record（幂等：只写一次）。 */

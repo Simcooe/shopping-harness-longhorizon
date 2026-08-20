@@ -145,11 +145,17 @@ bash scripts/run_live_task.sh --task-id 0 --live
   版本一致）+ `harnesses/base` 的 shopping-base profile；运行时安装在
   `.live/`（gitignore）。模型密钥映射为官方 adapter 读取的
   `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`。
-- 任何退出路径都会尽力调用 ShopSimulator `release`（finally 语义）。
-- 脱敏轨迹写入 `trajectories/<run_id>.jsonl`（不入库）。
-- 已知限制：环境任务指令（reset 返回的 instruction）当前不向模型暴露
-  （冻结层脱敏策略）；把任务指令安全注入模型上下文是下一增量，
-  见 `docs/dsh-shopping-plugin.md`。
+- **任务指令先于第一次模型决策**：runner 在启动 DSH 之前对环境 reset 一次
+  （整个 run 唯一一次），把 actor-safe 的 `{run_id, task_id, env_idx,
+  instruction_text}` 写入 `.live/runs/<run_id>/bootstrap.json`（0600，按 run 隔离）；真实任务文本以
+  `<shopping_task>` 边界注入 DSH 初始 prompt（argv 传递，无 shell 注入面）；
+  plugin 在 boot 阶段接管同一 `env_idx`，绝不二次 reset。
+- 任何退出路径（正常/异常/Ctrl-C）都只 `release_one` 当前 `env_idx`
+  （幂等；绝不使用 `release_all`）。cleanup 失败时**不会**删除 bootstrap
+  文件、也不会静默声称已释放，手动重试：
+  `SHOPPING_BOOTSTRAP=/abs/path/to/bootstrap.json SHOPSIM_BASE_URL=http://127.0.0.1:5700 node scripts/cleanup_live_session.ts`
+- actor trace 写入 `trajectories/actor/<run_id>.jsonl`，evaluator record
+  写入 `evaluation/runs/<run_id>.json`（均不入库）。
 - Final-200 Clean 绝不进入本流程。
 
 ## 当前状态

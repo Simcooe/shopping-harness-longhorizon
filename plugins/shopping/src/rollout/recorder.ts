@@ -92,7 +92,7 @@ export interface RunStartRecord {
 
 export interface TaskInstructionRecord {
   event: "task_instruction";
-  /** 模型实际可见的用户任务文本（注入首个工具结果时记录）。 */
+  /** 模型实际可见的用户任务文本（bootstrap 注入 DSH 初始 prompt 后记录）。 */
   instruction_text: string;
 }
 

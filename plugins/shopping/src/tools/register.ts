@@ -125,14 +125,13 @@ function buildDefinition(
           observation: result.observation?.state ?? {},
         });
 
-        // 任务指令一次性注入首个工具结果（模型真实可见 → actor trace 一致）
-        const taskInstruction = runtime.consumeTaskInstruction();
+        // 工具结果只返回当前动作与 actor-safe 观测；任务指令已在 DSH
+        // 初始 prompt 中（bootstrap 时序），绝不在工具结果中重复注入。
         const summary = tool.name === "finish_without_purchase"
           ? renderFinishSummary(String(typedArgs["reason"]))
           : renderToolSummary({
             environmentAction,
             done: projected.done,
-            taskInstruction,
             observation: result.observation,
           });
 

@@ -193,17 +193,17 @@ export function renderObservation(observation: ActorObservation | null): string 
   return truncate(lines.join("\n"));
 }
 
-/** 渲染 model-visible 的工具结果摘要（含任务指令与页面观测）。 */
+/**
+ * 渲染 model-visible 的工具结果摘要（动作 + 页面观测）。
+ * 任务指令不在此注入：它由 runner bootstrap 放进 DSH 初始 prompt，
+ * 工具结果绝不重复携带任务全文。
+ */
 export function renderToolSummary(options: {
   environmentAction: string;
   done: boolean;
-  taskInstruction: string | null;
   observation: ActorObservation | null;
 }): string {
   const sections: string[] = [];
-  if (options.taskInstruction !== null) {
-    sections.push(`【任务指令】\n${truncate(options.taskInstruction)}`);
-  }
   sections.push(`已执行环境动作: ${truncate(options.environmentAction, 120)}`);
   sections.push(`任务状态: ${options.done ? "已结束" : "进行中"}`);
   sections.push(`【当前页面】\n${renderObservation(options.observation)}`);

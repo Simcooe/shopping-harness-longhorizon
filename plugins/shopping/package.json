@@ -37,7 +37,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts",
-    "test:all": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts ../../tests/tools/actions_schemas.test.ts ../../tests/tools/register.test.ts ../../tests/tools/max_steps.test.ts ../../tests/observation/project.test.ts ../../tests/rollout/recorder.test.ts ../../tests/rollout/task_source.test.ts ../../tests/rollout/evaluator_record.test.ts ../../tests/rollout/live_config.test.ts",
+    "test:all": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts ../../tests/tools/actions_schemas.test.ts ../../tests/tools/register.test.ts ../../tests/tools/max_steps.test.ts ../../tests/observation/project.test.ts ../../tests/rollout/recorder.test.ts ../../tests/rollout/task_source.test.ts ../../tests/rollout/evaluator_record.test.ts ../../tests/rollout/bootstrap.test.ts ../../tests/rollout/bootstrap_lifecycle.test.ts ../../tests/rollout/live_config.test.ts",
     "check:dsh": "node scripts/check_dsh_shopping_plugin.ts",
     "smoke-shopping-adapter": "node ../../scripts/smoke_shopping_adapter.ts"
   },

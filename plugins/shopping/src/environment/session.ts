@@ -32,6 +32,21 @@ export class ShoppingEnvironmentSession {
     this.taskId = taskId;
   }
 
+  /**
+   * 接管一个由外部 runner bootstrap 创建的会话（同一 env_idx）。
+   * 接管会话**绝不 reset**：整个 run 只允许 reset 一次（发生在 runner
+   * bootstrap 阶段）。
+   */
+  static adopted(
+    client: ShopSimulatorHttpClient,
+    taskId: number,
+    envIdx: number,
+  ): ShoppingEnvironmentSession {
+    const session = new ShoppingEnvironmentSession(client, taskId);
+    session.#envIdx = envIdx;
+    return session;
+  }
+
   get envIdx(): number | null {
     return this.#envIdx;
   }

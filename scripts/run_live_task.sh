@@ -54,13 +54,14 @@ if [[ -z "${TASK_ID}" ]]; then
 fi
 
 # ---- .env 与模型配置 --------------------------------------------------------
-if [[ ! -f .env ]]; then
-  echo "[run_live_task] 缺少 .env：请先 cp .env.example .env 并填写模型配置。" >&2
+ENV_FILE="${SHOPPING_ENV_FILE:-.env}"
+if [[ ! -f "${ENV_FILE}" ]]; then
+  echo "[run_live_task] 缺少 ${ENV_FILE}：请先 cp .env.example .env 并填写模型配置。" >&2
   exit 4
 fi
 set -a
 # shellcheck disable=SC1091
-source .env
+source "${ENV_FILE}"
 set +a
 for key in SHOPSIM_BASE_URL MODEL_BASE_URL MODEL_API_KEY MODEL_NAME; do
   if [[ -z "${!key:-}" ]]; then
@@ -88,7 +89,7 @@ if [[ "${PROBE_HTTP}" != "200" ]]; then
 fi
 
 # ---- .live 运行时（DSH_HOME / profile / CLI；全部 gitignore） -----------------
-LIVE_DIR="${REPO_ROOT}/.live"
+LIVE_DIR="${SHOPPING_LIVE_DIR:-${REPO_ROOT}/.live}"
 DSH_HOME_DIR="${LIVE_DIR}/dsh-home"
 PROFILE_DIR="${DSH_HOME_DIR}/profiles/shopping-base"
 CLI_DIR="${LIVE_DIR}/cli"
@@ -120,57 +121,118 @@ cat > "${CLI_DIR}/package.json" <<'EOF'
 }
 EOF
 
-if [[ ! -d "${CLI_DIR}/node_modules" ]]; then
-  echo "[run_live_task] 安装 DSH CLI（@deepseek-ai/dsh@0.1.0-rc.7）..."
-  (cd "${CLI_DIR}" && pnpm install --silent) \
-    || { echo "[run_live_task] DSH CLI 安装失败。" >&2; exit 6; }
+if [[ -n "${SHOPPING_DSH_BIN:-}" ]]; then
+  # 测试/调试钩子：显式指定 dsh 可执行文件时跳过安装
+  DSH_BIN="${SHOPPING_DSH_BIN}"
+else
+  if [[ ! -d "${CLI_DIR}/node_modules" ]]; then
+    echo "[run_live_task] 安装 DSH CLI（@deepseek-ai/dsh@0.1.0-rc.7）..."
+    (cd "${CLI_DIR}" && pnpm install --silent) \
+      || { echo "[run_live_task] DSH CLI 安装失败。" >&2; exit 6; }
+  fi
+  if [[ ! -d "${PROFILE_DIR}/node_modules" ]]; then
+    echo "[run_live_task] 安装 profile bundles（dsh-base/dsh-headless/shopping plugin）..."
+    (cd "${PROFILE_DIR}" && pnpm install --silent) \
+      || { echo "[run_live_task] profile 依赖安装失败。" >&2; exit 6; }
+  fi
+  DSH_BIN="${CLI_DIR}/node_modules/.bin/dsh"
 fi
-if [[ ! -d "${PROFILE_DIR}/node_modules" ]]; then
-  echo "[run_live_task] 安装 profile bundles（dsh-base/dsh-headless/shopping plugin）..."
-  (cd "${PROFILE_DIR}" && pnpm install --silent) \
-    || { echo "[run_live_task] profile 依赖安装失败。" >&2; exit 6; }
-fi
-DSH_BIN="${CLI_DIR}/node_modules/.bin/dsh"
 [[ -x "${DSH_BIN}" ]] || { echo "[run_live_task] 未找到 dsh CLI: ${DSH_BIN}" >&2; exit 6; }
 
-# ---- finally 语义：任何退出路径都尽力归还 ShopSimulator 租约 -------------------
-LIVE_STARTED=0
+# ---- bootstrap 时序（instruction-before-first-decision） ----------------------
+#   确定 bootstrap path → 安装 EXIT trap → runner reset（整个 run 唯一一次）
+#   → instruction_text 进 DSH 初始 prompt → 模型第一次决策
+#   → plugin 接管同一 env_idx（绝不二次 reset）
+# run_id 由 prepare 生成（run-<时间戳>），此处再做一次字符校验防路径穿越。
+if [[ ! "${RUN_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "[run_live_task] run_id 非法: ${RUN_ID}" >&2
+  exit 5
+fi
+BOOTSTRAP_PATH="${LIVE_DIR}/runs/${RUN_ID}/bootstrap.json"
+
+# ---- cleanup：只 release_one 当前 env_idx（幂等），绝不 release_all ----------
+# bootstrap 文件存在即代表可能持有或曾持有租约；EXIT trap 尝试清理。
+CLEANED=0
 cleanup() {
-  if [[ "${LIVE_STARTED}" -eq 1 ]]; then
-    curl -s -m 10 -o /dev/null -X POST "${SHOPSIM_BASE_URL}/api/shop_agent" \
-      -H 'Content-Type: application/json' \
-      -d '{"action":"release_all"}' || true
+  if [[ "${CLEANED}" -eq 1 ]]; then
+    return 0
+  fi
+  CLEANED=1
+  if [[ -z "${BOOTSTRAP_PATH:-}" ]]; then
+    return 0
+  fi
+  if SHOPPING_BOOTSTRAP="${BOOTSTRAP_PATH}" node scripts/cleanup_live_session.ts; then
+    echo "[run_live_task] cleanup 完成：env_idx 已释放，bootstrap 已清理。"
+  else
+    # 不得静默声称已释放：保留 bootstrap 文件并给出恢复命令
+    echo "[run_live_task] 警告: cleanup 失败，bootstrap 保留于 ${BOOTSTRAP_PATH}" >&2
+    echo "[run_live_task] 手动重试: SHOPPING_BOOTSTRAP=${BOOTSTRAP_PATH} SHOPSIM_BASE_URL=${SHOPSIM_BASE_URL} node scripts/cleanup_live_session.ts" >&2
   fi
 }
+cleanup_and_exit() {
+  # INT/TERM 兜底（launcher 未启动等早期路径）：先转发信号；
+  # launcher 运行中时只转发不退出——必须等 child 退出后才 cleanup，
+  # 防止 cleanup 与仍在运行的 DSH 并发释放 env_idx。
+  if [[ -n "${LAUNCHER_PID:-}" ]] && kill -0 "${LAUNCHER_PID}" 2>/dev/null; then
+    kill -s "${1}" "${LAUNCHER_PID}" 2>/dev/null || true
+    return 0
+  fi
+  cleanup
+  exit "$([ "${1}" = "INT" ] && echo 130 || echo 143)"
+}
 trap cleanup EXIT
+trap 'cleanup_and_exit INT' INT
+trap 'cleanup_and_exit TERM' TERM
+
+# ---- bootstrap reset（helper 在 handoff 前失败/中断会自行 release） -----------
+BOOTSTRAP_JSON="$(node scripts/bootstrap_live_session.ts \
+  --task-id "${TASK_ID}" --run-id "${RUN_ID}" --output "${BOOTSTRAP_PATH}")" \
+  || { echo "[run_live_task] bootstrap（环境 reset/写入）失败。" >&2; exit 3; }
+ENV_IDX="$(printf '%s' "${BOOTSTRAP_JSON}" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).envIdx))')"
+export SHOPPING_BOOTSTRAP="${BOOTSTRAP_PATH}"
+echo "[run_live_task] bootstrap 完成: env_idx=${ENV_IDX}（任务指令已就绪，将注入 DSH 初始 prompt）"
 
 # ---- 启动 headless DSH task（真实模型调用发生在这里） --------------------------
 # 官方 adapter 读取 DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL（固定 DSH commit 行为），
 # 由 .env 的 MODEL_API_KEY / MODEL_BASE_URL 映射而来。
-# 已知限制：任务的具体购买目标（环境 reset 返回的 instruction）当前不向模型
-# 暴露（冻结层脱敏策略）；把任务指令安全地注入模型上下文是下一增量，
-# 见 docs/dsh-shopping-plugin.md。
-LIVE_STARTED=1
+# 任务 prompt（含 <shopping_task> 边界内的真实指令）由 launch_dsh_task.ts
+# 以 argv 数组传递给 dsh，不经过 shell 解析，无注入面。
+#
+# 信号链：runner(trap) → launcher(转发) → DSH child。
+# launcher 后台启动 + wait：bash 在 wait 期间可立即执行 trap（转发信号），
+# 然后继续等待 launcher/DSH 真正退出，之后才 cleanup——保证 cleanup 不与
+# 仍在运行的 DSH 并发。launcher 按惯例以 130(SIGINT)/143(SIGTERM) 退出。
 echo "[run_live_task] 启动 dsh --profile shopping-base（模型: ${MODEL_NAME}）"
+LAUNCHER_PID=""
 set +e
 DSH_HOME="${DSH_HOME_DIR}" \
   DEEPSEEK_API_KEY="${MODEL_API_KEY}" \
   DEEPSEEK_BASE_URL="${MODEL_BASE_URL}" \
-  SHOPPING_TASK_ID="${TASK_ID}" \
-  SHOPPING_TASK_SOURCE="${REPO_ROOT}/configs/tasks/development.json" \
+  SHOPPING_BOOTSTRAP="${BOOTSTRAP_PATH}" \
   SHOPPING_RUN_ID="${RUN_ID}" \
   SHOPPING_TRAJECTORIES_DIR="${REPO_ROOT}/trajectories" \
   SHOPPING_MAX_STEPS="${MAX_STEPS}" \
-  "${DSH_BIN}" --profile shopping-base \
-  "执行注入的购物任务（任务由运行器通过 SHOPPING_TASK_ID=${TASK_ID} 注入）。只使用 search_products / open_product / finish_without_purchase 三个工具。"
+  node scripts/launch_dsh_task.ts --dsh-bin "${DSH_BIN}" --profile shopping-base &
+LAUNCHER_PID=$!
+wait "${LAUNCHER_PID}"
 DSH_EXIT=$?
+# 若 wait 被已捕获信号打断（>128）且 launcher 仍在运行：继续等它退出
+if [[ "${DSH_EXIT}" -gt 128 ]] && kill -0 "${LAUNCHER_PID}" 2>/dev/null; then
+  wait "${LAUNCHER_PID}"
+  DSH_EXIT=$?
+fi
 set -e
-LIVE_STARTED=0
+LAUNCHER_PID=""
+
+# ---- DSH 已返回：先 cleanup，成功后撤销 trap，返回原始退出码 ------------------
 cleanup
 trap - EXIT
+trap - INT
+trap - TERM
 
 echo "[run_live_task] 运行结束（dsh exit=${DSH_EXIT}）"
 echo "[run_live_task] run_id=${RUN_ID}"
-echo "[run_live_task] 脱敏轨迹: trajectories/${RUN_ID}.jsonl"
-echo "[run_live_task] 提示: 报告中不含 API key / goal / gold / reward / 完整 observation。"
+echo "[run_live_task] actor trace: trajectories/actor/${RUN_ID}.jsonl"
+echo "[run_live_task] evaluator record: evaluation/runs/${RUN_ID}.json"
+echo "[run_live_task] 提示: 报告与轨迹不含 API key / goal / gold / reward / 隐藏字段。"
 exit "${DSH_EXIT}"
