@@ -18,6 +18,18 @@
       "types": "./lib/environment/index.d.ts",
       "default": "./lib/environment/index.js"
     },
+    "./tools": {
+      "types": "./lib/tools/index.d.ts",
+      "default": "./lib/tools/index.js"
+    },
+    "./observation": {
+      "types": "./lib/observation/index.d.ts",
+      "default": "./lib/observation/index.js"
+    },
+    "./rollout": {
+      "types": "./lib/rollout/index.d.ts",
+      "default": "./lib/rollout/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -25,6 +37,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts",
+    "test:all": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts ../../tests/tools/actions_schemas.test.ts ../../tests/tools/register.test.ts ../../tests/observation/project.test.ts ../../tests/rollout/recorder.test.ts ../../tests/rollout/task_source.test.ts",
+    "check:dsh": "node scripts/check_dsh_shopping_plugin.ts",
     "smoke-shopping-adapter": "node ../../scripts/smoke_shopping_adapter.ts"
   },
   "dsh": {
@@ -34,6 +48,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "yaml": "^2.9.0"
   }
 }

@@ -13,6 +13,10 @@ __pycache__/
 # shopping plugin 构建产物（源码在 plugins/shopping/src/）
 plugins/shopping/lib/
 
+# rollout 运行产物（轨迹 JSONL 不入库；README 保留）
+trajectories/*.jsonl
+trajectories/**/*.jsonl
+
 # ---- environment/ShopSimulator 运行产物（源码/配置/压缩数据/README/EMBEDDED_SOURCE.json 不忽略）----
 environment/ShopSimulator/.venv-shopsim/
 environment/ShopSimulator/.venv-shopsim-v2/

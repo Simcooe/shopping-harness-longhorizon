@@ -1,0 +1,19 @@
+{
+  "name": "dsh-profile-shopping-base",
+  "private": true,
+  "description": "Base harness profile: DSH base + headless capability + external shopping plugin, with the frozen shopping system prompt. Not yet installed/executed against a real DSH runtime.",
+  "dependencies": {
+    "@deepseek-ai/dsh-base": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-headless": "0.1.0-rc.7",
+    "@shopping-harness/plugin-shopping": "file:../../plugins/shopping"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-headless",
+        "@shopping-harness/plugin-shopping"
+      ]
+    }
+  }
+}

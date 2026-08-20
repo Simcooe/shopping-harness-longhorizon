@@ -124,5 +124,31 @@ python3 scripts/smoke_environment.py
 - shopping plugin environment adapter（HTTP client + session 生命周期）：
   完成，mock 单元测试通过；`pnpm --dir plugins/shopping smoke-shopping-adapter --live`
   可在环境运行时做 live 验证。
-- tools action mapping、DSH tool registration、完整 agent、rollout、
-  patch 生成与 gate：未实现，见各目录 README 占位说明。
+- shopping plugin 已按 DSH 真实 bundle/profile 机制装配：三个冻结购物
+  工具（`search_products` / `open_product` / `finish_without_purchase`）
+  经 `ctx.tools.register` 注册；`harnesses/base/` 为 shopping-base
+  profile。离线装配检查：`pnpm --dir plugins/shopping check:dsh`。
+  机制与限制见 `docs/dsh-shopping-plugin.md`。
+- **尚未**接模型、未执行真实 DSH boot / Agent rollout：下一步是本地填写
+  模型 API 配置（环境变量，绝不入库）后，真实运行一条
+  DSH + 模型 + ShopSimulator 任务。
+- Self-Harness（候选 patch 生成与 gate）：未实现，见各目录 README。
+
+## 本地开发流程
+
+```bash
+# 1. 环境准备与启动（见上文 smoke test 小节）
+bash scripts/setup_environment.sh
+bash scripts/start_environment.sh
+
+# 2. shopping plugin：构建、测试、离线装配检查
+pnpm --dir plugins/shopping install
+pnpm --dir plugins/shopping build
+pnpm --dir plugins/shopping test:all     # mock 测试（含脱敏与映射）
+pnpm --dir plugins/shopping check:dsh    # 无模型装配检查
+
+# 3. Python 侧测试
+python3 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+以上所有步骤**不需要任何 API key**；接入模型是独立的后续步骤。

@@ -7,15 +7,15 @@ shopping plugin：本项目自进化（Self-Harness）的载体。插件内部�
 
 ```
 plugins/shopping/
-├── package.json            # private 包；按 DSH bundle 机制声明 dsh.bundle.patch
+├── package.json            # bundle 包：声明 dsh.bundle.patch（DSH 真实机制）
 ├── tsconfig.json           # 构建配置（ESM/NodeNext/strict，tsc 输出 lib/）
-├── cordis.patch.yml        # 空 Cordis patch 占位（未声明任何 overlay 键）
+├── cordis.patch.yml        # bundle patch：挂载 shopping 函数插件行
 └── src/
-    ├── index.ts            # 空入口占位：不注册工具、不调用环境
+    ├── index.ts            # Cordis 函数插件入口：name/inject/apply（注册工具）
     ├── environment/        # 冻结层：环境接入与 HTTP client（已实现 adapter）
-    ├── tools/              # 冻结层：工具真实 schema 与 action mapping
-    ├── observation/        # 冻结层：观测解析与结构化
-    ├── rollout/            # 冻结层：rollout 执行与轨迹审计
+    ├── tools/              # 冻结层：工具 schema、action mapping、DSH 注册（已实现）
+    ├── observation/        # 冻结层：观测投影与脱敏（已实现）
+    ├── rollout/            # 冻结层：JSONL 轨迹审计与任务来源（已实现）
     └── policy/             # 可进化层：唯一允许 Self-Harness 修改的源码目录
 ```
 
@@ -69,24 +69,23 @@ pnpm --dir plugins/shopping test       # mock 单元测试（node:test）
 每个候选 patch 必须可 diff、可回放、可回滚、可审计，且零触碰冻结层
 （见根 README）。
 
-## 接入状态：尚未接入 DSH profile
+## 三个 model-facing 工具（冻结，见 src/tools/）
 
-DSH 的外部扩展机制是 **profile bundle**（依据：
-`dsh/packages/boot/app-boot/src/profile.ts`、`dsh/apps/cli/src/plugin.ts`、
-`dsh/packages/bundle/README.zh.md`）：bundle 是 npm 包，其 `package.json`
-声明 `dsh.bundle.patch` 指向随包发布的 Cordis patch YAML；profile 在自身
-`package.json` 的 `dsh.profile.bundles` 中列出 bundle，树外包通过
-`dsh plugin --profile <name> add <package>` 安装。
+1. `search_products({ query })` → `search[query]`
+2. `open_product({ asin })` → `click[asin]`
+3. `finish_without_purchase({ reason: "no_suitable_product" })` → `finish[no_suitable_product]`
 
-本包现状（诚实声明，不伪造可运行配置）：
+## 接入状态：已装配进 DSH profile，尚未执行真实模型
 
-- `package.json` 按真实 bundle 机制声明了 `dsh.bundle.patch`，但
-  `cordis.patch.yml` 是**空数组占位**，未声明任何 overlay 配置键；
-- **不存在**引用本包的 DSH profile（没有 `dsh.profile.bundles` 接入）；
-- 未执行过 `dsh plugin add`，未安装任何依赖，无 lockfile；
-- `src/index.ts` 只有空导出（与 `@deepseek-ai/dsh-base` 的入口形态一致），
-  不注册工具、不调用环境；
-- `tsconfig.json` 仅服务于本包的构建与测试（ESM/NodeNext/strict）；
-  DSH 加载的是构建产物与 patch YAML，不直接消费 TS 源码；
-- DSH 处于 developer preview（固定 SHA，见 `DEPENDENCIES.md`），接入方式
-  可能随上游变化。
+- 本包是 DSH 外部 **bundle**（`dsh.bundle.patch` 机制），
+  `cordis.patch.yml` 挂载函数插件行；`src/index.ts` 以命名导出
+  `name/inject/apply` 提供 Cordis 入口，`apply()` 通过
+  `ctx.tools.register` 注册三个冻结工具。
+- `harnesses/base/` 是引用本包的 **shopping-base profile**（DSH base +
+  headless + shopping bundle + 冻结 system prompt）。
+- 装配正确性由 `pnpm --dir plugins/shopping check:dsh` 离线校验；
+  机制细节与限制见 `docs/dsh-shopping-plugin.md`。
+- **尚未**执行真实 Cordis Loader boot、未接任何模型：npm registry 的
+  DSH 包版本滞后于固定 SHA，真实 boot 留待版本对齐后执行。
+- 下一步才是：填写本地模型 API 配置（环境变量，绝不入库），
+  用 `dsh --profile shopping-base "<task>"` 真实运行单条任务。

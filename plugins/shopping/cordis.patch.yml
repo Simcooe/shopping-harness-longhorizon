@@ -1,5 +1,13 @@
-# 空的 Cordis patch 占位（顶层 YAML 数组）。
-# 尚未声明任何 overlay 配置键；在 shopping policy 实现之前保持为空。
-# 依据：dsh/packages/bundle/base/cordis.patch.yml 与
-# dsh/packages/boot/app-boot/src/profile.ts 的 dsh.bundle.patch 机制。
-[]
+# shopping bundle patch：把一个 Cordis 函数插件行挂到 profile 根配置。
+#
+# 机制（固定 DSH commit）：bundle patch 由 dsh.bundle.patch 声明，在
+# profile boot 时按 dsh.profile.bundles 顺序叠加（packages/boot/app-boot/
+# src/profile.ts）；`insert` 无 id 时向根配置追加行（vendor/include）。
+# Loader 按 bare specifier 导入 name 指向的包；函数插件的命名导出
+# name/inject/apply 被激活（docs/cordis-primer）。
+#
+# 本 patch 只做挂载，不做任何策略配置；策略编辑面在 policy 层与
+# harnesses/*/shopping-policy.yml（尚未实现）。
+- insert:
+    - id: shopping
+      name: '@shopping-harness/plugin-shopping'

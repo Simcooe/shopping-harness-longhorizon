@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "purpose": "base_harness_runner",
+  "task_source": {
+    "kind": "declared_development_tasks",
+    "path": "configs/tasks/development.json",
+    "allowed_purpose": "development_smoke_only"
+  },
+  "task_selection": {
+    "mode": "external_injection_only",
+    "notes": "task_id 只能由外部 runner 入口从 task_source 声明的集合中选择并注入；模型不得决定、猜测或修改 task_id。"
+  },
+  "environment": {
+    "base_url_env": "SHOPSIM_BASE_URL",
+    "default_base_url": "http://127.0.0.1:5700",
+    "requires_api_key": false
+  },
+  "harness": {
+    "name": "shopping-base",
+    "profile": "shopping-base",
+    "system_prompt": "harnesses/base/system-prompt.md",
+    "plugin": "@shopping-harness/plugin-shopping"
+  },
+  "guardrails": {
+    "final_benchmark_excluded": true,
+    "notes": "本 runner 只服务开发任务；Final-200 Clean 仅作为未来最终盲测，不进入任何 runner 配置。"
+  }
+}
