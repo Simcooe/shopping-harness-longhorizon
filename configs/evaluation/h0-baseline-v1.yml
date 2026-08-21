@@ -1,0 +1,23 @@
+# h0 baseline 正式评测配置（35 步）。
+# 与 configs/live-task.example.yml（单条 smoke，5 步）相互独立：
+# smoke 配置保持 5 步不变，本配置用于批量 baseline evaluation。
+schema_version: 1
+purpose: development_single_live_task
+
+task_source: configs/tasks/development.json
+
+# h0 正式 rollout 步数（与 harnesses/base/runtime-policy.yml 一致）
+max_environment_steps: 35
+
+temperature: 0
+
+# h0 tool surface（唯一来源仍是 harnesses/base/tool-surface.yml；
+# 此处白名单必须与其一致，由 prepare 阶段交叉校验）
+allowed_tools:
+  - shop_search
+  - shop_click
+  - shop_finish
+
+output_dir: trajectories/
+
+final_benchmark_excluded: true

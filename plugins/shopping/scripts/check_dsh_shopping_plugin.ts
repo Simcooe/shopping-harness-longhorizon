@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { apply, name as pluginName, setShoppingRuntime } from "../src/index.ts";
-import { SHOPPING_TOOLS } from "../src/tools/schemas.ts";
+import { loadHarness } from "../src/harness/surface.ts";
 import type { DshToolDefinition, DshToolRegistryLike } from "../src/tools/register.ts";
 import { ShoppingRuntime } from "../src/tools/runtime.ts";
 import { ShopSimulatorHttpClient } from "../src/environment/client.ts";
@@ -102,9 +102,8 @@ const persona = (systemPromptRow?.["config"] as Record<string, unknown> | undefi
 step(
   "profile patch 设置购物 system prompt",
   typeof persona === "string"
-    && persona.includes("search_products")
-    && persona.includes("open_product")
-    && persona.includes("finish_without_purchase"),
+    && persona.includes("shop_click")
+    && !persona.includes("search_products"),
   typeof persona === "string" ? `persona ${persona.length} 字符` : "缺少 persona",
 );
 
@@ -127,12 +126,16 @@ setShoppingRuntime(new ShoppingRuntime({
 }));
 apply({ tools: registry });
 
+// h0：工具的唯一配置来源是 harnesses/base/tool-surface.yml
+const harness = loadHarness(join(REPO_ROOT, "harnesses", "base"));
 const registeredNames = registry.definitions.map((definition) => definition.name).sort();
-const expectedNames = SHOPPING_TOOLS.map((tool) => tool.name).sort();
+const expectedNames = harness.toolSurface.tools.map((tool) => tool.name).sort();
 step(
-  "apply() 注册完整冻结工具集（12 个）",
-  JSON.stringify(registeredNames) === JSON.stringify(expectedNames),
-  `registered=[${registeredNames.join(", ")}]`,
+  "apply() 注册 h0 tool surface（恰好 3 个 primitive 工具）",
+  harness.harnessId === "shopping-h0"
+    && expectedNames.length === 3
+    && JSON.stringify(registeredNames) === JSON.stringify(expectedNames),
+  `harness=${harness.harnessId} registered=[${registeredNames.join(", ")}]`,
 );
 
 let schemaOk = true;

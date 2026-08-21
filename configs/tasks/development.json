@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "purpose": "development_smoke_only",
-  "task_ids": [0],
-  "selection_rationale": "task_ids 是 ShopSimulator 在进程内生成的 goal 列表的下标（goals 由环境源码 get_goals() 从本仓库内嵌的压缩商品语料生成，随环境 snapshot 冻结）。下标 0 在 goal 列表非空时是确定有效的开发任务，适合作为 smoke test 的固定探针。",
+  "task_ids": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "selection_rationale": "shopping-development-v1 的完整 task 集合（held-in 0-7 + held-out 8-11）。全部经 vendored ShopSimulator reset/release_one 验证（configs/evaluation/development-v1.yml 记录依据）。单条 smoke 默认用 task 0；批量 baseline 按 benchmark manifest 的 split 选择。",
   "final_benchmark_excluded": true,
-  "notes": "本文件为本项目自行声明的开发任务集，仅用于开发与 smoke test；不读取、不引用 shopping-grpo-longhorizon 的任何任务或数据。本文件不包含 Final-200 Clean 的任何 task ID。当前 smoke 仅使用本项目声明的开发任务；正式与 Final-200 的隔离验证将在未来引入 benchmark manifest 后执行——本仓库目前没有可验证依据声称两者集合不相交，因此不作此声明。"
+  "notes": "本文件为本项目自行声明的开发任务集。不包含 Final-200 Clean 的任何 task ID；Final-200 仅作未来最终盲测。"
 }

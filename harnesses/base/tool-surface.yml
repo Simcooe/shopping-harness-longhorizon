@@ -1,0 +1,49 @@
+# h0 tool surface：模型面对的工具定义的唯一配置来源（恰好三个工具）。
+#
+# 约束（由冻结的 surface loader 校验）：
+#   - primitive 只能是 search / click / finish（冻结枚举）；
+#   - binding 必须恰好绑定 primitive 的唯一参数；
+#   - 参数仅支持字符串类型与受限约束（长度/枚举）；
+#   - 不允许表达任意 shell / URL / JavaScript / 任意环境 action。
+schema_version: 1
+
+tools:
+  - name: shop_search
+    primitive: search
+    description: 在当前购物环境中按关键词搜索商品。
+    parameters:
+      - name: query
+        type: string
+        required: true
+        min_length: 1
+        max_length: 200
+    binding:
+      query: query
+
+  - name: shop_click
+    primitive: click
+    description: >-
+      点击当前页面上的一个可点击项（商品链接、规格选项或导航按钮）。
+      target 必须来自你上一轮实际看到的当前页面可点击项，不得编造。
+    parameters:
+      - name: target
+        type: string
+        required: true
+        min_length: 1
+        max_length: 200
+    binding:
+      target: target
+
+  - name: shop_finish
+    primitive: finish
+    description: >-
+      在未找到合适商品时结束本次购物（不购买）。
+      结束不等于任务成功；任务是否完成以环境判定为准。
+    parameters:
+      - name: reason
+        type: string
+        required: true
+        enum:
+          - no_suitable_product
+    binding:
+      reason: reason

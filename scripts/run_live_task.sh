@@ -71,7 +71,13 @@ for key in SHOPSIM_BASE_URL MODEL_BASE_URL MODEL_API_KEY MODEL_NAME; do
 done
 
 # ---- 离线准备校验（配置/任务注入/脱敏 metadata） ------------------------------
-RUN_JSON="$(node plugins/shopping/scripts/prepare_live_run.ts --task-id "${TASK_ID}")" \
+# SHOPPING_LIVE_TASK_CONFIG 可覆盖默认 live-task 配置（批量 baseline 用
+# configs/evaluation/h0-baseline-v1.yml 的 35 步；单条 smoke 默认 5 步不变）。
+PREPARE_ARGS=(--task-id "${TASK_ID}")
+if [[ -n "${SHOPPING_LIVE_TASK_CONFIG:-}" ]]; then
+  PREPARE_ARGS+=(--config "${SHOPPING_LIVE_TASK_CONFIG}")
+fi
+RUN_JSON="$(node plugins/shopping/scripts/prepare_live_run.ts "${PREPARE_ARGS[@]}")" \
   || { echo "[run_live_task] 准备校验失败。" >&2; exit 5; }
 RUN_ID="$(printf '%s' "${RUN_JSON}" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).run_id))')"
 MAX_STEPS="$(printf '%s' "${RUN_JSON}" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).max_environment_steps))')"
@@ -209,6 +215,7 @@ DSH_HOME="${DSH_HOME_DIR}" \
   DEEPSEEK_API_KEY="${MODEL_API_KEY}" \
   DEEPSEEK_BASE_URL="${MODEL_BASE_URL}" \
   SHOPPING_BOOTSTRAP="${BOOTSTRAP_PATH}" \
+  SHOPPING_HARNESS_DIR="${REPO_ROOT}/harnesses/base" \
   SHOPPING_RUN_ID="${RUN_ID}" \
   SHOPPING_TRAJECTORIES_DIR="${REPO_ROOT}/trajectories" \
   SHOPPING_MAX_STEPS="${MAX_STEPS}" \

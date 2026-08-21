@@ -19,6 +19,9 @@ trajectories/**/*.jsonl
 
 # evaluator record（结果证据，运行产物不入库；README 保留）
 evaluation/runs/
+
+# baseline 批量结果（运行产物不入库）
+evaluation/baselines/
 **/evaluation/runs/
 
 # live runner 运行时目录（DSH_HOME/CLI/profile 安装；绝不入库）

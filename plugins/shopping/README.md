@@ -69,34 +69,44 @@ pnpm --dir plugins/shopping test       # mock 单元测试（node:test）
 每个候选 patch 必须可 diff、可回放、可回滚、可审计，且零触碰冻结层
 （见根 README）。
 
-## 12 个 model-facing 工具（冻结，见 src/tools/）
+## 工具层：h0 的三个 primitive 工具
 
-| 工具 | 环境 action |
-|---|---|
-| `search_products({ query })` | `search[query]` |
-| `open_product({ asin })` | `click[asin]` |
-| `select_option({ value })` | `click[value]` |
-| `view_description({})` | `click[Description]` |
-| `view_features({})` | `click[Features]` |
-| `view_reviews({})` | `click[Reviews]` |
-| `view_attributes({})` | `click[Attributes]` |
-| `next_page({})` | `click[Next >]` |
-| `prev_page({})` | `click[< Prev]` |
-| `back_to_search({})` | `click[Back to Search]` |
-| `buy_now({})` | `click[Buy Now]` |
-| `finish_without_purchase({ reason })` | `finish[no_suitable_product]` |
+当前默认 Harness **h0**（`harnesses/base/`，shopping-h0）只向模型暴露
+三个工具，工具名/schema/描述的**唯一配置来源**是
+`harnesses/base/tool-surface.yml`（经冻结的 surface loader 校验；plugin
+不再硬编码任何工具名）：
 
-冻结 action guard（`src/tools/guard.ts`）在调用环境前校验：asin/选项/按钮
-必须来自模型上一轮**实际看到**的 actor-visible 观测；搜索不可用时拒绝
-search；terminal 后拒绝一切调用；拒绝时不调用 ShopSimulator、不消耗步数，
-只向模型返回安全纠正信息并写 actor trace 的 `guard_rejection`。
+| 工具 | primitive | 冻结映射 |
+|---|---|---|
+| `shop_search({ query })` | search | `search[query]` |
+| `shop_click({ target })` | click | `click[target]` |
+| `shop_finish({ reason })` | finish | `finish[no_suitable_product]` |
+
+- 三个 primitive 覆盖 ShopSimulator 原生完整动作语言；primitive → 环境
+  action 的真实映射在 `src/harness/surface.ts` 中冻结，YAML 只能引用
+  primitive，不能表达任意 shell/URL/JS/任意环境 action。
+- `shop_click.target` 必须来自模型上一轮实际看到的当前页面可点击项
+  （冻结 guard，`src/tools/guard.ts`）；历史页面的 target 天然不可用。
+- `shop_finish.reason` 必须严格等于 `no_suitable_product`。
+- 旧的高层语义工具（open_product/buy_now/翻页/查看子页等）不属于 h0；
+  未来只能作为 candidate harness 在 tool surface 中增加的高层表示出现，
+  且不得修改环境。
+
+guard 拒绝时：不调用 ShopSimulator、不消耗步数，只向模型返回安全纠正
+信息并写 actor trace 的 `guard_rejection`。
+
+## 目录补充
+
+- `src/harness/`（冻结基础设施）：canonical harness 加载/校验
+  （`loadHarness`）、primitive 冻结映射、surface 参数校验、tool-surface
+  digest。harness 的 YAML 内容才是未来 candidate 可修改对象。
 
 ## 接入状态：已装配进 DSH profile，尚未执行真实模型
 
 - 本包是 DSH 外部 **bundle**（`dsh.bundle.patch` 机制），
   `cordis.patch.yml` 挂载函数插件行；`src/index.ts` 以命名导出
   `name/inject/apply` 提供 Cordis 入口，`apply()` 通过
-  `ctx.tools.register` 注册 12 个冻结工具。
+  `ctx.tools.register` 注册当前 harness tool surface 定义的工具（h0 为三个 primitive 工具）。
 - `harnesses/base/` 是引用本包的 **shopping-base profile**（DSH base +
   headless + shopping bundle + 冻结 system prompt）。
 - 装配正确性由 `pnpm --dir plugins/shopping check:dsh` 离线校验；

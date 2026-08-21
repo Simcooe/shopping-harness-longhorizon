@@ -1,21 +1,20 @@
 /**
- * 12 个购物工具在 DSH 工具注册表中的注册（冻结层）。
+ * 购物工具在 DSH 工具注册表中的注册（冻结层，surface 驱动）。
+ *
+ * 工具的唯一配置来源是当前 harness 的 tool-surface.yml（经冻结的
+ * surface loader 校验）；本文件不再硬编码任何工具名。
  *
  * 依据固定 DSH commit 的真实 API：ToolRuntime.register(ToolDefinition)，
  * ToolDefinition = {name, description, parameters(JSON Schema),
- * output:{schema, render}, execute(args, exec)}（原始 JSON Schema 形态，
- * 注册方自行负责输入校验）。结构类型逐字段对照固定源码，避免依赖
- * 版本漂移的 npm 包；详见 docs/dsh-shopping-plugin.md。
+ * output:{schema, render}, execute(args, exec)}。
  *
- * 双通道纪律（Phase 6）：execute 只接触 actor 通道（session.interact 的
- * 返回值在类型上就只有 actor 字段）；evaluator 结果证据经 client 的
- * evaluatorSink 直连 runtime.evaluator，本文件拿不到、也不传递它。
+ * 双通道纪律：execute 只接触 actor 通道；evaluator 结果证据经 client
+ * evaluatorSink 直达记录器，本文件拿不到、也不传递它。
  */
 
-import { toEnvironmentAction } from "./actions.ts";
-import { SHOPPING_TOOLS, validateToolArgs, type ShoppingToolDefinition } from "./schemas.ts";
-import { GuardRejectionError } from "./guard.ts";
-import { MaxStepsError, type ShoppingRuntime } from "./runtime.ts";
+import type { ToolSurfaceEntry } from "../harness/surface.ts";
+import { primitiveToEnvironmentAction, validateSurfaceToolArgs } from "../harness/surface.ts";
+import type { ShoppingRuntime } from "./runtime.ts";
 import {
   projectInteract,
   renderFinishSummary,
@@ -76,37 +75,75 @@ function renderOutput(_args: unknown, value: DshJsonValue): DshContentBlock[] {
   return [{ type: "text", text: output.summary }];
 }
 
+/** 由 tool-surface 条目生成 JSON Schema（唯一来源是 YAML）。 */
+function surfaceToJsonSchema(entry: ToolSurfaceEntry): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const param of entry.parameters) {
+    const spec: Record<string, unknown> = {
+      type: "string",
+      description: param.enum !== undefined
+        ? `允许取值: ${param.enum.join(" | ")}`
+        : `${param.name}（字符串）`,
+    };
+    if (param.minLength !== undefined) {
+      spec["minLength"] = param.minLength;
+    }
+    if (param.maxLength !== undefined) {
+      spec["maxLength"] = param.maxLength;
+    }
+    if (param.enum !== undefined) {
+      spec["enum"] = [...param.enum];
+    }
+    properties[param.name] = spec;
+    if (param.required) {
+      required.push(param.name);
+    }
+  }
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
 function buildDefinition(
-  tool: ShoppingToolDefinition,
+  entry: ToolSurfaceEntry,
   runtime: ShoppingRuntime,
 ): DshToolDefinition {
   return {
-    name: tool.name,
-    description: tool.description,
-    parameters: { ...tool.parameters } as Record<string, unknown>,
+    name: entry.name,
+    description: entry.description,
+    parameters: surfaceToJsonSchema(entry),
     output: { schema: OUTPUT_SCHEMA, render: renderOutput },
     async execute(args: unknown, exec: DshToolRunContextLike): Promise<unknown> {
       if (exec.signal.aborted) {
         throw new Error("工具调用已取消");
       }
-      const problems = validateToolArgs(tool, args);
+      const problems = validateSurfaceToolArgs(entry, args);
       if (problems.length > 0) {
         throw new Error(`参数无效: ${problems.join("; ")}`);
       }
       const typedArgs = args as Record<string, unknown>;
 
-      // 1. 冻结 guard：基于模型上一轮实际看到的 actor-visible 观测校验。
-      //    拒绝时不调用 ShopSimulator、不消耗步数，只写 guard_rejection。
-      runtime.guardCheck(tool.name, typedArgs);
+      // 1. 冻结 guard：基于模型上一轮实际看到的 actor-visible 观测校验
+      runtime.guardCheck(entry.primitive, typedArgs);
 
-      const environmentAction = toEnvironmentAction(tool.name, typedArgs);
+      // 2. 冻结 primitive → 环境 action 映射
+      const environmentAction = primitiveToEnvironmentAction(
+        entry.primitive,
+        typedArgs,
+        entry.binding,
+      );
+
       const session = await runtime.ensureSession();
       const recorder = runtime.recorder;
 
       runtime.evaluator.noteToolStep();
       recorder?.record({
         event: "tool_call",
-        tool: tool.name,
+        tool: entry.name,
         args: typedArgs,
         environment_action: environmentAction,
       });
@@ -125,9 +162,8 @@ function buildDefinition(
           observation: result.observation?.state ?? {},
         });
 
-        // 工具结果只返回当前动作与 actor-safe 观测；任务指令已在 DSH
-        // 初始 prompt 中（bootstrap 时序），绝不在工具结果中重复注入。
-        const summary = tool.name === "finish_without_purchase"
+        // 工具结果只返回当前动作与 actor-safe 观测（任务指令在初始 prompt）
+        const summary = entry.primitive === "finish"
           ? renderFinishSummary(String(typedArgs["reason"]))
           : renderToolSummary({
             environmentAction,
@@ -160,9 +196,9 @@ function buildDefinition(
         return output;
       } catch (cause) {
         // 异常路径也保证归还租约，并写 terminal + evaluator
-        if (cause instanceof MaxStepsError) {
+        if (cause instanceof Error && cause.name === "MaxStepsError") {
           runtime.evaluator.noteMaxSteps();
-        } else if (!(cause instanceof GuardRejectionError)) {
+        } else {
           runtime.evaluator.noteLocalError(
             "code" in (cause as { code?: string })
               && (cause as { code?: string }).code === "environment"
@@ -178,15 +214,13 @@ function buildDefinition(
         recorder?.record({
           event: "terminal",
           done: false,
-          local_reason: cause instanceof MaxStepsError
+          local_reason: cause instanceof Error && cause.name === "MaxStepsError"
             ? "max_steps"
-            : cause instanceof GuardRejectionError
-              ? "guard"
-              : "tool_error",
+            : "tool_error",
           release_status: session.releaseError === null ? "released" : "release_failed",
           error_code: "code" in (cause as { code?: string })
             ? String((cause as { code?: string }).code)
-            : cause instanceof MaxStepsError
+            : cause instanceof Error && cause.name === "MaxStepsError"
               ? "max_steps"
               : "unknown",
         });
@@ -198,14 +232,15 @@ function buildDefinition(
   };
 }
 
-/** 构建 12 个冻结工具定义（schemas 与映射均来自冻结模块）。 */
+/** 按当前 harness 的 tool surface 构建全部工具定义。 */
 export function buildShoppingToolDefinitions(
   runtime: ShoppingRuntime,
 ): DshToolDefinition[] {
-  return SHOPPING_TOOLS.map((tool) => buildDefinition(tool, runtime));
+  const harness = runtime.requireHarness();
+  return harness.toolSurface.tools.map((entry) => buildDefinition(entry, runtime));
 }
 
-/** 把全部工具注册进给定的注册表，返回 disposer。 */
+/** 把 surface 中的工具注册进给定的注册表，返回 disposer。 */
 export function registerShoppingTools(
   registry: DshToolRegistryLike,
   runtime: ShoppingRuntime,

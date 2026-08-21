@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { SHOPPING_TOOL_NAMES } from "../src/tools/actions.ts";
+import { loadHarness } from "../src/harness/surface.ts";
 import {
   assertInjectedTaskId,
   loadDevelopmentTaskSource,
@@ -55,7 +55,9 @@ try {
 } catch {
   fail(`无法读取 live-task 配置: ${configPath}`);
 }
-const config = validateLiveTaskConfig(parseYaml(configText), SHOPPING_TOOL_NAMES);
+const harness = loadHarness(join(REPO_ROOT, "harnesses", "base"));
+const surfaceToolNames = harness.toolSurface.tools.map((tool) => tool.name);
+const config = validateLiveTaskConfig(parseYaml(configText), surfaceToolNames);
 
 // 2. task_id 必须属于声明的开发任务集（模型不得决定 task_id）
 const source = loadDevelopmentTaskSource(join(REPO_ROOT, config.taskSource));

@@ -22,6 +22,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
+const REPO_ROOT = new URL("../..", import.meta.url).pathname;
+const H0_DIR = join(REPO_ROOT, "harnesses", "base");
+
 import { ShopSimulatorHttpClient } from "../../plugins/shopping/src/environment/client.ts";
 import { ShoppingRuntime } from "../../plugins/shopping/src/tools/runtime.ts";
 import {
@@ -266,7 +269,8 @@ test("4/5/6/10. 全程一次 reset、接管 env_idx、工具结果无指令、tr
       env: {},
       maxSteps: 5,
       trajectoriesDir: dir,
-    });
+      harnessDir: H0_DIR,
+  });
     const session = runtime.adoptBootstrap(bootstrap);
     assert.equal(session.envIdx, 7); // 接管的是 bootstrap 的 env_idx
     assert.equal(runtime.session, session);
@@ -275,8 +279,8 @@ test("4/5/6/10. 全程一次 reset、接管 env_idx、工具结果无指令、tr
     registerShoppingTools(registry, runtime);
 
     // 模型第一次决策后的工具执行：不再 reset
-    const first = await registry.byName("search_products").execute({ query: "乳胶枕头" }, exec) as { summary: string };
-    await registry.byName("search_products").execute({ query: "儿童枕头" }, exec);
+    const first = await registry.byName("shop_search").execute({ query: "乳胶枕头" }, exec) as { summary: string };
+    await registry.byName("shop_search").execute({ query: "儿童枕头" }, exec);
 
     // 4. 整个 run 只有一次 reset（bootstrap 的那次）
     const resets = captured.filter((entry) => entry["action"] === "reset");
@@ -289,7 +293,8 @@ test("4/5/6/10. 全程一次 reset、接管 env_idx、工具结果无指令、tr
     const runtime2 = new ShoppingRuntime({
       client,
       env: { SHOPPING_BOOTSTRAP: "/nonexistent/bootstrap.json" },
-    });
+      harnessDir: H0_DIR,
+  });
     await assert.rejects(() => runtime2.ensureSession(), /不得自行 reset/);
 
     // 6. 第一个工具结果不含任务指令
@@ -324,6 +329,7 @@ test("5b. 已接管会话再次 bootstrap 被拒绝", () => {
     env: {},
     trajectoriesDir: dir,
     evaluationDir: dir,
+    harnessDir: H0_DIR,
   });
   const bootstrap: BootstrapSession = {
     schema_version: 1, run_id: "run-b5", task_id: 0, env_idx: 7,
@@ -351,6 +357,7 @@ test("9b. runtime.closeSession 幂等释放、只发一次 HTTP、只针对当�
   const client = new ShopSimulatorHttpClient("http://127.0.0.1:5700", { fetchImpl });
   const runtime = new ShoppingRuntime({
     client, env: {}, maxSteps: 5, trajectoriesDir: dir, evaluationDir: dir,
+    harnessDir: H0_DIR,
   });
   runtime.adoptBootstrap({
     schema_version: 1, run_id: "run-b9b", task_id: 0, env_idx: 7,

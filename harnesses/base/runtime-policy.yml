@@ -1,0 +1,15 @@
+# h0 runtime policy（最小版：本阶段只要求 schema、加载、校验与记录；
+# 复杂 middleware 不在当前实现范围）。
+schema_version: 1
+
+# h0 正式 rollout 的默认环境步数上限。
+# 注意：configs/live-task.example.yml 的 5 步是 single-case smoke 设置，
+# 与本配置相互独立；不要把 smoke 配置当成正式 benchmark 配置。
+max_environment_steps: 35
+
+# 连续 guard 拒绝达到该次数时的处理在后续阶段实现；本阶段仅记录。
+max_consecutive_guard_rejections: 3
+
+on_tool_error: terminate_run
+on_max_steps: terminate_run
+on_environment_done: terminate_run

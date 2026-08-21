@@ -17,6 +17,7 @@ import {
 } from "../../plugins/shopping/src/tools/register.ts";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
+const H0_DIR = join(REPO_ROOT, "harnesses", "base");
 const TASK_SOURCE = join(REPO_ROOT, "configs", "tasks", "development.json");
 
 function lifecycleFetch() {
@@ -65,11 +66,12 @@ test("懒会话：SHOPPING_TASK_ID 注入并校验，无需手动 openSession", 
     client: new ShopSimulatorHttpClient("http://127.0.0.1:5700", { fetchImpl }),
     env: { SHOPPING_TASK_ID: "0", SHOPPING_TASK_SOURCE: TASK_SOURCE },
     maxSteps: 5,
+    harnessDir: join(REPO_ROOT, "harnesses", "base"),
   });
   const registry = new Collector();
   registerShoppingTools(registry, runtime);
 
-  const value = await registry.byName("search_products").execute({ query: "枕头" }, exec) as { env_idx: number };
+  const value = await registry.byName("shop_search").execute({ query: "枕头" }, exec) as { env_idx: number };
   assert.equal(value.env_idx, 5);
   assert.equal(captured[0]?.["action"], "reset");
   assert.equal(captured[0]?.["idx"], 0); // task_id 来自注入，不是模型决定
@@ -80,12 +82,13 @@ test("懒会话：非法注入（集合外 task_id）被拒绝", async () => {
   const runtime = new ShoppingRuntime({
     client: new ShopSimulatorHttpClient("http://127.0.0.1:5700", { fetchImpl }),
     env: { SHOPPING_TASK_ID: "999999", SHOPPING_TASK_SOURCE: TASK_SOURCE },
+    harnessDir: join(REPO_ROOT, "harnesses", "base"),
   });
   const registry = new Collector();
   registerShoppingTools(registry, runtime);
 
   await assert.rejects(
-    () => registry.byName("search_products").execute({ query: "x" }, exec),
+    () => registry.byName("shop_search").execute({ query: "x" }, exec),
     /不在声明的开发任务集合/,
   );
 });
@@ -95,12 +98,13 @@ test("懒会话：缺少 SHOPPING_TASK_ID 时拒绝（不创建任务）", async
   const runtime = new ShoppingRuntime({
     client: new ShopSimulatorHttpClient("http://127.0.0.1:5700", { fetchImpl }),
     env: {},
+    harnessDir: join(REPO_ROOT, "harnesses", "base"),
   });
   const registry = new Collector();
   registerShoppingTools(registry, runtime);
 
   await assert.rejects(
-    () => registry.byName("search_products").execute({ query: "x" }, exec),
+    () => registry.byName("shop_search").execute({ query: "x" }, exec),
     /SHOPPING_TASK_ID/,
   );
 });
@@ -118,11 +122,12 @@ test("懒注入记录器：SHOPPING_RUN_ID 生效且轨迹脱敏", async () => {
       },
       trajectoriesDir: dir,
       maxSteps: 5,
-    });
+      harnessDir: H0_DIR,
+  });
     const registry = new Collector();
     registerShoppingTools(registry, runtime);
 
-    await registry.byName("search_products").execute({ query: "枕头" }, exec);
+    await registry.byName("shop_search").execute({ query: "枕头" }, exec);
     runtime.recorder?.close();
 
     const trajectory = readFileSync(join(dir, "actor", "run-live-test.jsonl"), "utf-8");
@@ -149,10 +154,11 @@ test("步数预算：超过 maxSteps 抛 MaxStepsError，release 且记录 max_s
       },
       trajectoriesDir: dir,
       maxSteps: 2,
-    });
+      harnessDir: H0_DIR,
+  });
     const registry = new Collector();
     registerShoppingTools(registry, runtime);
-    const tool = registry.byName("search_products");
+    const tool = registry.byName("shop_search");
 
     await tool.execute({ query: "a" }, exec);
     await tool.execute({ query: "b" }, exec);

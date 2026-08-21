@@ -1,0 +1,17 @@
+# h0 verification policy：最小结束/评测边界（冻结红线，不可放宽）。
+schema_version: 1
+
+# 只有环境判定 done 才算任务完成。
+completion_requires_environment_done: true
+
+# reward 只出现在 evaluator record 中。
+reward_only_in_evaluator_record: true
+
+# actor（模型可见通道）绝不包含 reward。
+actor_sees_reward: false
+
+# shop_finish 是一个环境动作，不等于任务成功。
+finish_equals_success: false
+
+# evaluator record 不可回灌同一次 rollout（禁止把结果证据喂回同一任务的模型）。
+evaluator_feedback_into_same_rollout: false

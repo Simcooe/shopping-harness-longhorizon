@@ -35,7 +35,8 @@ harnesses/base/package.json          dsh.profile.bundles: [..., "@shopping-harne
 plugins/shopping/package.json        dsh.bundle.patch: ./cordis.patch.yml
 plugins/shopping/cordis.patch.yml    insert: id=shopping, name=@shopping-harness/plugin-shopping
 plugins/shopping/lib/index.js        函数插件入口（name/inject=["tools"]/apply）
-apply(ctx)                           ctx.tools.register(12 个冻结工具)
+apply(ctx)                           loadHarness(SHOPPING_HARNESS_DIR ?? harnesses/base)
+                                     ctx.tools.register(tool surface 定义的工具)
 ```
 
 ## 工具注册 API
@@ -92,6 +93,28 @@ apply(ctx)                           ctx.tools.register(12 个冻结工具)
    步数上限 `SHOPPING_MAX_STEPS`（live-task 配置默认 5）；
 5. cleanup（正常/异常/Ctrl-C）只 `release_one` bootstrap 的 `env_idx`
    （幂等）；绝不使用 `release_all`，避免影响其他并发任务。
+
+## 默认 Harness h0（canonical 表示）
+
+h0 是机器可读的最小默认 Harness，目录 `harnesses/base/`：
+
+- `harness.yml` — 唯一入口：schema_version、harness_id(shopping-h0)、
+  parent_harness(null)、version、四个文件引用、editable_surfaces 白名单；
+- `tool-surface.yml` — 模型工具的唯一配置来源；h0 恰好三个工具
+  （shop_search/shop_click/shop_finish），每个工具有 name/primitive/
+  description/parameters/binding；primitive 枚举冻结为 search/click/finish，
+  binding 必须恰好绑定 primitive 的唯一参数；
+- `system-prompt.md` — 最小购物提示词（无复杂策略）；
+- `runtime-policy.yml` — 最小运行时策略（h0 正式 rollout 默认
+  max_environment_steps: 35；live smoke 配置仍为 5 步，两者独立）；
+- `verification-policy.yml` — 结束/评测边界红线（environment done 才算
+  完成、reward 只在 evaluator、actor 不见 reward、finish ≠ 成功、
+  evaluator 不回灌同一 rollout）；加载器会拒绝放宽这些红线的 harness。
+
+冻结基础设施（`plugins/shopping/src/harness/surface.ts`）负责加载与校验；
+harness 的 YAML/md 内容才是未来 candidate 可修改对象。plugin 在 apply()
+时装载 harness（`SHOPPING_HARNESS_DIR` 可覆盖，默认 harnesses/base），
+并按 surface 注册工具；tool-surface digest 记入 actor trace 的 run_start。
 
 ### 已知限制（如实记录）
 

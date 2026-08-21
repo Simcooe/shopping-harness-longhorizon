@@ -67,8 +67,10 @@ test("actor trace：六类事件逐行可解析，字段完整", () => {
     recorder.record({
       event: "run_start",
       profile: "shopping-base",
-      tools: ["search_products"],
-      system_prompt_ref: "harnesses/base/system-prompt.md",
+      harness_id: "shopping-h0",
+      harness_manifest_version: "0.1.0",
+      tool_surface: "sha256:deadbeef",
+      system_prompt_ref: "system-prompt.md",
     });
     recorder.record({ event: "task_instruction", instruction_text: "买一个枕头" });
     recorder.record({

@@ -1,0 +1,38 @@
+# shopping-development-v1：固定的 development benchmark（仅用于 harness 开发）
+#
+# 本集合由本仓库自行定义：task IDs 通过 vendored ShopSimulator 的
+# reset/release_one 逐一验证（scripts/validate_development_tasks.py，
+# 可复现、无模型）。不从 shopping-grpo-longhorizon 导入任何 task/数据/
+# 代码/结果。不宣称与 Final-200（其构成在本仓库未知）不相交；只声明
+# Final-200 Clean 绝不进入本流程（仅作未来最终盲测）。
+schema_version: 1
+benchmark_id: shopping-development-v1
+purpose: harness_development_only
+harness_id: shopping-h0
+harness_version: "0.1.0"
+
+task_source: configs/tasks/development.json
+
+# held-in：后续允许用于 failure evidence（失败轨迹挖掘的输入）
+held_in_task_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+
+# held-out：后续绝不提供给 proposer，只用于 candidate gate
+held_out_task_ids: [8, 9, 10, 11]
+
+final_benchmark_excluded: true
+
+split_selection_rationale: >-
+  取验证通过的最小连续 task ID 区间 [0, 11]（2026-08-21 经
+  scripts/validate_development_tasks.py --discover --limit 16 确认 0..15
+  全部 valid：reset 成功、instruction 存在、release_one 成功）。
+  前 8 个为 held-in，后 4 个为 held-out。顺序 ID 是确定性选择，
+  不依赖任何外部数据源；12 个任务足够小以支持快速迭代，又不是单 task。
+
+max_environment_steps: 35
+
+evaluation:
+  repeats: 1
+
+trajectory_usage:
+  held_in: 后续允许作为 failure evidence 的输入
+  held_out: 后续绝不提供给 proposer；只用于 candidate gate

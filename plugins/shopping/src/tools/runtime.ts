@@ -14,8 +14,8 @@
 import { ShopSimulatorHttpClient } from "../environment/client.ts";
 import type { ActorObservation } from "../environment/protocol.ts";
 import { ShoppingEnvironmentSession } from "../environment/session.ts";
-import { checkToolCall, GuardRejectionError, type GuardState } from "./guard.ts";
-import type { ShoppingToolName } from "./actions.ts";
+import { checkPrimitiveCall, GuardRejectionError, type GuardState } from "./guard.ts";
+import { loadHarness, type HarnessDefinition, type Primitive } from "../harness/surface.ts";
 import { RolloutRecorder } from "../rollout/recorder.ts";
 import { EvaluatorCollector, writeEvaluatorRecord } from "../rollout/evaluator_record.ts";
 import { assertInjectedTaskId, loadDevelopmentTaskSource } from "../rollout/task_source.ts";
@@ -40,11 +40,14 @@ export interface ShoppingRuntimeOptions {
   /** evaluator record 目录；默认 evaluation/runs。 */
   evaluationDir?: string;
   harnessVersion?: string;
+  /** harness 目录（默认取环境变量 SHOPPING_HARNESS_DIR）。 */
+  harnessDir?: string;
+  /** 已加载的 harness 定义（测试/宿主注入）。 */
+  harness?: HarnessDefinition;
 }
 
 export class ShoppingRuntime {
   readonly client: ShopSimulatorHttpClient;
-  readonly maxSteps: number;
   readonly evaluator: EvaluatorCollector;
 
   #recorder: RolloutRecorder | null;
@@ -57,6 +60,10 @@ export class ShoppingRuntime {
   #guardState: GuardState = { observation: null, terminal: false, inFlight: false };
   #taskId: number | null = null;
   #evaluatorWritten = false;
+  #harness: HarnessDefinition | null;
+  #harnessDir: string | null;
+  #maxStepsOverride: number | undefined;
+  #runStartRecorded = false;
 
   constructor(options: ShoppingRuntimeOptions = {}) {
     this.#env = options.env ?? process.env;
@@ -73,9 +80,44 @@ export class ShoppingRuntime {
       });
     }
     this.#recorder = options.recorder ?? null;
+    this.#maxStepsOverride = options.maxSteps;
+    this.#harness = options.harness ?? null;
+    this.#harnessDir = options.harnessDir ?? null;
+  }
+
+  /** 当前 harness（未装载时从 harnessDir 懒加载）。 */
+  requireHarness(): HarnessDefinition {
+    if (this.#harness === null) {
+      const dir = this.#harnessDir ?? this.#env["SHOPPING_HARNESS_DIR"];
+      if (dir === undefined || dir.length === 0) {
+        throw new Error("未指定 harness 目录（SHOPPING_HARNESS_DIR 或 options.harnessDir）");
+      }
+      this.#harness = loadHarness(dir);
+    }
+    return this.#harness;
+  }
+
+  /** 宿主在 boot 阶段显式装载 harness（apply 使用）。 */
+  attachHarness(harness: HarnessDefinition): void {
+    this.#harness = harness;
+  }
+
+  /**
+   * 步数预算解析：显式 options > SHOPPING_MAX_STEPS > harness runtime-policy。
+   * （live smoke 的 5 步来自 runner 注入；h0 正式 rollout 默认 35 步。）
+   */
+  get maxSteps(): number {
+    if (this.#maxStepsOverride !== undefined) {
+      return this.#maxStepsOverride;
+    }
     const fromEnv = Number(this.#env["SHOPPING_MAX_STEPS"]);
-    this.maxSteps = options.maxSteps
-      ?? (Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 5);
+    if (Number.isInteger(fromEnv) && fromEnv > 0) {
+      return fromEnv;
+    }
+    if (this.#harness !== null) {
+      return this.#harness.runtimePolicy.maxEnvironmentSteps;
+    }
+    return 5;
   }
 
   get recorder(): RolloutRecorder | null {
@@ -113,15 +155,15 @@ export class ShoppingRuntime {
   // ---- guard 集成 -----------------------------------------------------------
 
   /** guard 校验：拒绝时抛 GuardRejectionError（不调用环境、不耗步数）。 */
-  guardCheck(toolName: ShoppingToolName, args: Record<string, unknown>): void {
+  guardCheck(primitive: Primitive, args: Record<string, unknown>): void {
     try {
-      checkToolCall(toolName, args, this.#guardState);
+      checkPrimitiveCall(primitive, args, this.#guardState);
     } catch (cause) {
       if (cause instanceof GuardRejectionError) {
         this.evaluator.noteGuardRejection();
         this.#recorder?.record({
           event: "guard_rejection",
-          tool: toolName,
+          tool: primitive,
           guard_reason: cause.guardReason,
           correction: cause.message,
         });
@@ -193,12 +235,7 @@ export class ShoppingRuntime {
         harnessVersion: this.#harnessVersion,
       });
     }
-    this.#recorder.record({
-      event: "run_start",
-      profile: "shopping-base",
-      tools: [],
-      system_prompt_ref: "harnesses/base/system-prompt.md",
-    });
+    this.#recordRunStart();
     this.#recorder.record({
       event: "task_instruction",
       instruction_text: bootstrap.instruction_text,
@@ -243,12 +280,7 @@ export class ShoppingRuntime {
           taskId,
           harnessVersion: this.#harnessVersion,
         });
-        this.#recorder.record({
-          event: "run_start",
-          profile: "shopping-base",
-          tools: [],
-          system_prompt_ref: "harnesses/base/system-prompt.md",
-        });
+        this.#recordRunStart();
       }
     }
     return this.openSession(taskId);
@@ -273,6 +305,23 @@ export class ShoppingRuntime {
         releaseStatus,
       }),
     );
+  }
+
+  /** 记录 run_start（含 harness 身份与 tool surface digest；只记一次）。 */
+  #recordRunStart(): void {
+    if (this.#runStartRecorded || this.#recorder === null) {
+      return;
+    }
+    this.#runStartRecorded = true;
+    const harness = this.#harness;
+    this.#recorder.record({
+      event: "run_start",
+      profile: "shopping-base",
+      harness_id: harness?.harnessId ?? null,
+      harness_manifest_version: harness?.version ?? null,
+      tool_surface: harness?.toolSurfaceDigest ?? null,
+      system_prompt_ref: harness !== null ? harness.systemPromptRef : null,
+    });
   }
 
   /** 归还并解绑当前会话（幂等）。 */

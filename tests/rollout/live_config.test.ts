@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { join } from "node:path";
 
 import {
   LiveConfigError,
@@ -13,10 +14,12 @@ import {
   missingModelEnvKeys,
   validateLiveTaskConfig,
 } from "../../plugins/shopping/src/rollout/index.ts";
-import { SHOPPING_TOOL_NAMES } from "../../plugins/shopping/src/tools/index.ts";
+import { loadHarness } from "../../plugins/shopping/src/harness/surface.ts";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
-const TOOLS = [...SHOPPING_TOOL_NAMES];
+const REPO_ROOT_FOR_HARNESS = new URL("../..", import.meta.url).pathname;
+const TOOLS = loadHarness(join(REPO_ROOT_FOR_HARNESS, "harnesses", "base"))
+  .toolSurface.tools.map((tool) => tool.name);
 
 function validConfigObject(): Record<string, unknown> {
   return {

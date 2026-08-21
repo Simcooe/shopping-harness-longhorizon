@@ -1,0 +1,23 @@
+# shopping-h0：最小默认 Harness（canonical 表示唯一入口）
+#
+# h0 只向模型暴露三个 primitive 工具（shop_search / shop_click / shop_finish），
+# 覆盖 ShopSimulator 原生完整动作语言。高层语义工具（如 open_product /
+# buy_now）不属于 h0；未来只能作为 candidate harness 在 tool surface 中
+# 增加的高层表示出现，且不得修改冻结的环境映射。
+schema_version: 1
+harness_id: shopping-h0
+parent_harness: null
+version: "0.1.0"
+
+system_prompt: system-prompt.md
+tool_surface: tool-surface.yml
+runtime_policy: runtime-policy.yml
+verification_policy: verification-policy.yml
+
+# 可编辑面白名单（声明性）。未来 candidate 只能修改这些文件的内容；
+# plugin 的 surface resolver / validator、环境、adapter 等是冻结基础设施。
+editable_surfaces:
+  - system-prompt.md
+  - tool-surface.yml
+  - runtime-policy.yml
+  - verification-policy.yml

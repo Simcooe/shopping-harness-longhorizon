@@ -20,9 +20,16 @@
  * 本入口不加入 policy/self-evolution 逻辑；不决定 task_id。
  */
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { registerShoppingTools, type DshToolRegistryLike } from "./tools/register.ts";
 import { ShoppingRuntime } from "./tools/runtime.ts";
 import { loadBootstrap } from "./rollout/bootstrap.ts";
+import { loadHarness } from "./harness/surface.ts";
+
+const PLUGIN_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_ROOT = join(PLUGIN_DIR, "..", "..");
 
 export const name = "shopping";
 
@@ -49,9 +56,12 @@ export function getShoppingRuntime(): ShoppingRuntime {
   return injectedRuntime;
 }
 
-/** Cordis 激活入口：bootstrap 接管（如有）+ 注册冻结购物工具。 */
+/** Cordis 激活入口：装载 harness + bootstrap 接管（如有）+ 注册 surface 工具。 */
 export function apply(ctx: ShoppingPluginContext): void {
   const runtime = getShoppingRuntime();
+  // 装载当前 harness（工具的唯一配置来源）；默认 harnesses/base（h0）
+  const harnessDir = process.env["SHOPPING_HARNESS_DIR"] ?? join(REPO_ROOT, "harnesses", "base");
+  runtime.attachHarness(loadHarness(harnessDir));
   // bootstrap 模式：接管 runner 在 DSH 启动前 reset 的会话；
   // 接管发生在第一次模型请求之前，且插件此后绝不 reset。
   const bootstrapPath = process.env["SHOPPING_BOOTSTRAP"];

@@ -86,8 +86,12 @@ export interface ActorRecordBase {
 export interface RunStartRecord {
   event: "run_start";
   profile: string;
-  tools: readonly string[];
-  system_prompt_ref: string;
+  /** 当前 harness 身份与 tool surface 标识（模型无关、无敏感内容）。 */
+  harness_id: string | null;
+  /** harness manifest 中声明的版本（区别于记录器级 harness_version）。 */
+  harness_manifest_version: string | null;
+  tool_surface: string | null;
+  system_prompt_ref: string | null;
 }
 
 export interface TaskInstructionRecord {

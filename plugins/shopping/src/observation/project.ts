@@ -15,7 +15,6 @@ import {
   type InteractResult,
   type ResetResult,
 } from "../environment/protocol.ts";
-import { visibleOptionValues, visibleProductAsins } from "../tools/guard.ts";
 
 /** 显式剔除的服务端字段（文档化红线）。 */
 export const HIDDEN_RESULT_FIELDS = [
@@ -167,9 +166,21 @@ export function renderObservation(observation: ActorObservation | null): string 
     if (Object.keys(selectedOptions).length > 0) {
       lines.push(`已选规格: ${JSON.stringify(selectedOptions)}`);
     }
-    const optionValues = visibleOptionValues(observation);
-    if (optionValues.length > 0) {
-      lines.push(`可选规格值: ${optionValues.slice(0, 30).join(" | ")}`);
+    const availableOptions = state["available_options"];
+    if (typeof availableOptions === "object" && availableOptions !== null) {
+      const optionValues: string[] = [];
+      for (const values of Object.values(availableOptions as Record<string, unknown>)) {
+        if (Array.isArray(values)) {
+          for (const entry of values) {
+            if (typeof entry === "string") {
+              optionValues.push(entry);
+            }
+          }
+        }
+      }
+      if (optionValues.length > 0) {
+        lines.push(`可选项: ${optionValues.slice(0, 30).join(" | ")}`);
+      }
     }
     if (state["selected_price"] !== undefined) {
       lines.push(`当前规格价格: ${money(state["selected_price"])}`);
@@ -182,12 +193,9 @@ export function renderObservation(observation: ActorObservation | null): string 
     }
   }
 
-  const buttons = observation.clickables.filter(
-    (entry) => !visibleProductAsins(observation).map((asin) => asin.toLowerCase())
-      .includes(entry.toLowerCase()),
-  );
-  if (buttons.length > 0) {
-    lines.push(`可用按钮/选项: ${buttons.slice(0, 30).join(" | ")}`);
+  // 全部 actor-visible 可点击项（含商品链接、选项与导航按钮）
+  if (observation.clickables.length > 0) {
+    lines.push(`当前页面可点击项: ${observation.clickables.slice(0, 40).join(" | ")}`);
   }
   lines.push(`搜索功能: ${observation.searchAvailable ? "可用" : "不可用"}`);
   return truncate(lines.join("\n"));
