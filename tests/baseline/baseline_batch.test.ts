@@ -73,13 +73,16 @@ function startMockShopSim(): Promise<MockShopSim> {
   });
 }
 
-/** fake DSH：按 prompt 中的任务号决定退出码（task1 → exit 3，其余 0）。 */
+/** fake DSH：按 prompt 中的任务号决定退出码（task1 → exit 3，其余 0）。
+ *  失败时把 API key 值写入 stderr（模拟真实 DSH 崩溃时的泄漏），供
+ *  验证 baseline orchestrator 的 stderr 脱敏不打印密钥。 */
 function makeFakeDsh(dir: string): string {
   const path = join(dir, "fake-dsh.js");
   writeFileSync(path, `#!/usr/bin/env node
 const prompt = process.argv[4] ?? "";
 const match = prompt.match(/任务指令-task(\\d+)/);
 const taskNum = match ? parseInt(match[1], 10) : -1;
+process.stderr.write("[fake-dsh] task " + taskNum + " failed key=" + (process.env.DEEPSEEK_API_KEY ?? "") + "\\n");
 process.exit(taskNum === 1 ? 3 : 0);
 `, "utf-8");
   chmodSync(path, 0o700);
@@ -156,6 +159,7 @@ test("batch 生命周期：独立 run_id、单次 reset/release、失败不阻�
         SHOPPING_DSH_BIN: makeFakeDsh(dir),
         SHOPPING_LIVE_DIR: join(dir, "live"),
         SHOPSIM_BASE_URL: sim.url,
+        MODEL_API_KEY: "dummy-test-key-not-real",
         SHOPPING_BASELINE_EVAL_CONFIG: join(REPO_ROOT, "configs", "evaluation", "h0-baseline-v1.yml"),
       },
     );
@@ -214,6 +218,11 @@ test("batch 生命周期：独立 run_id、单次 reset/release、失败不阻�
       assert.ok(!text.includes("dummy-test-key-not-real"), `${file} 泄漏 API key`);
       assert.ok(!text.includes("任务指令-task"), `${file} 泄漏任务文本`);
     }
+
+    // 失败可观察性：runner 失败时，终端显示脱敏后的 stderr 摘要，不打印 API key
+    assert.match(result.stderr, /\[baseline_orchestrator\] task 1 失败/);
+    assert.match(result.stderr, /\[fake-dsh\] task 1 failed key=/);
+    assert.ok(!result.stderr.includes("dummy-test-key-not-real"), "orchestrator stderr 泄漏 API key");
   } finally {
     await sim.close();
     rmSync(dir, { recursive: true, force: true });

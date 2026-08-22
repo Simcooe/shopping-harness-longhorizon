@@ -23,13 +23,14 @@
  *   - 工具 execute 的真实调用链（权限/超时/事件管线）不在本检查范围。
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { apply, name as pluginName, setShoppingRuntime } from "../src/index.ts";
 import { loadHarness } from "../src/harness/surface.ts";
+import { DEFAULT_MODEL_FACING_TOOL_ROWS, NON_MODEL_FACING_TOOL_PREFIXED_ROWS } from "../src/harness/profile_tool_surface.ts";
 import type { DshToolDefinition, DshToolRegistryLike } from "../src/tools/register.ts";
 import { ShoppingRuntime } from "../src/tools/runtime.ts";
 import { ShopSimulatorHttpClient } from "../src/environment/client.ts";
@@ -106,6 +107,49 @@ step(
     && !persona.includes("search_products"),
   typeof persona === "string" ? `persona ${persona.length} 字符` : "缺少 persona",
 );
+
+// 3b. profile patch 禁用全部默认 model-facing tool row --------------------------
+
+const disabledRowIds = profilePatch
+  .filter((entry) => entry["disabled"] === true)
+  .map((entry) => entry["id"])
+  .filter((id): id is string => typeof id === "string");
+const missingDisables = (DEFAULT_MODEL_FACING_TOOL_ROWS as readonly string[]).filter(
+  (rowId) => !disabledRowIds.includes(rowId),
+);
+step(
+  "profile patch 禁用全部默认 model-facing tool row（且不禁用 tools registry）",
+  missingDisables.length === 0 && !disabledRowIds.includes("tools"),
+  missingDisables.length === 0
+    ? `已禁用 ${disabledRowIds.length} 个 row`
+    : `缺失禁用: ${missingDisables.join(", ")}`,
+);
+
+// 3c. 防漂移：与固定 DSH base bundle 的 model-facing tool row 对齐 -----------------
+
+const basePatchPath = join(REPO_ROOT, "dsh", "packages", "bundle", "base", "cordis.patch.yml");
+if (existsSync(basePatchPath)) {
+  const baseText = readFileSync(basePatchPath, "utf-8");
+  const baseToolRows = [...baseText.matchAll(/-\s+id:\s+(tool-[a-z0-9-]+)/g)]
+    .map((match) => match[1] ?? "")
+    .filter((id) => !(NON_MODEL_FACING_TOOL_PREFIXED_ROWS as readonly string[]).includes(id));
+  const baseModelFacing = [...new Set([...baseToolRows, "plan-mode"])].sort();
+  const uncovered = baseModelFacing.filter(
+    (id) => !(DEFAULT_MODEL_FACING_TOOL_ROWS as readonly string[]).includes(id),
+  );
+  const extra = (DEFAULT_MODEL_FACING_TOOL_ROWS as readonly string[]).filter(
+    (id) => !baseModelFacing.includes(id),
+  );
+  step(
+    "profile 禁用清单与固定 DSH base model-facing tool row 对齐",
+    uncovered.length === 0 && extra.length === 0,
+    `base rows=[${baseModelFacing.join(", ")}]`
+      + (uncovered.length > 0 ? ` 未覆盖=${uncovered.join(",")}` : "")
+      + (extra.length > 0 ? ` 多余=${extra.join(",")}` : ""),
+  );
+} else {
+  step("profile 禁用清单与 DSH base 对齐（dsh/ 缺失，跳过）", true, "dsh/ 未检出，按冻结常量校验");
+}
 
 // 4. 插件入口 apply() → 12 个工具注册 ----------------------------------------------
 

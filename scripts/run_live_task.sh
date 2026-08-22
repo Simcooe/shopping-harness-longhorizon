@@ -70,6 +70,11 @@ for key in SHOPSIM_BASE_URL MODEL_BASE_URL MODEL_API_KEY MODEL_NAME; do
   fi
 done
 
+# ---- harness 目录（可由调用方覆盖，默认 base；绝不硬编码为 base） --------------
+# 导出给 prepare / generate_profile_patch / DSH 子进程使用。
+HARNESS_DIR="${SHOPPING_HARNESS_DIR:-${REPO_ROOT}/harnesses/base}"
+export SHOPPING_HARNESS_DIR="${HARNESS_DIR}"
+
 # ---- 离线准备校验（配置/任务注入/脱敏 metadata） ------------------------------
 # SHOPPING_LIVE_TASK_CONFIG 可覆盖默认 live-task 配置（批量 baseline 用
 # configs/evaluation/h0-baseline-v1.yml 的 35 步；单条 smoke 默认 5 步不变）。
@@ -108,7 +113,10 @@ const src = JSON.parse(fs.readFileSync("harnesses/base/package.json", "utf-8"));
 src.dependencies["@shopping-harness/plugin-shopping"] = "file:" + process.argv[1];
 fs.writeFileSync(process.argv[2], JSON.stringify(src, null, 2) + "\n");
 ' "${REPO_ROOT}/plugins/shopping" "${PROFILE_DIR}/package.json"
-cp harnesses/base/cordis.patch.yml "${PROFILE_DIR}/cordis.patch.yml"
+# effective profile patch：persona 来自当前 harness 的 system-prompt.md；
+# 冻结禁用行 + agent-default-model（MODEL_NAME）由 generate_profile_patch 安全生成。
+node scripts/generate_profile_patch.ts --profile-dir "${PROFILE_DIR}" \
+  || { echo "[run_live_task] effective profile patch 生成失败（harness 校验失败？）。" >&2; exit 5; }
 # 与固定 DSH commit 的 initProfile 完全一致（app-boot/profile.ts 的
 # PROFILE_PNPM_WORKSPACE）：pnpm ≥10 从 pnpm-workspace.yaml 读设置，
 # 且必须包含 packages 字段。
@@ -131,16 +139,22 @@ if [[ -n "${SHOPPING_DSH_BIN:-}" ]]; then
   # 测试/调试钩子：显式指定 dsh 可执行文件时跳过安装
   DSH_BIN="${SHOPPING_DSH_BIN}"
 else
+  # 1. 确保本地 plugin 已构建（lib/ 为最新构建产物；sync 指纹覆盖 lib/）
+  echo "[run_live_task] 构建本地 plugin（pnpm --dir plugins/shopping build）..."
+  (cd "${REPO_ROOT}" && pnpm --dir plugins/shopping build) \
+    || { echo "[run_live_task] plugin 构建失败。" >&2; exit 6; }
+
+  # 2. DSH CLI（官方固定版本，与 plugin 无关，只装一次）
   if [[ ! -d "${CLI_DIR}/node_modules" ]]; then
     echo "[run_live_task] 安装 DSH CLI（@deepseek-ai/dsh@0.1.0-rc.7）..."
     (cd "${CLI_DIR}" && pnpm install --silent) \
       || { echo "[run_live_task] DSH CLI 安装失败。" >&2; exit 6; }
   fi
-  if [[ ! -d "${PROFILE_DIR}/node_modules" ]]; then
-    echo "[run_live_task] 安装 profile bundles（dsh-base/dsh-headless/shopping plugin）..."
-    (cd "${PROFILE_DIR}" && pnpm install --silent) \
-      || { echo "[run_live_task] profile 依赖安装失败。" >&2; exit 6; }
-  fi
+
+  # 3. profile bundle 同步（指纹变化才重装；否则复用 node_modules）
+  node scripts/sync_live_profile.ts --profile-dir "${PROFILE_DIR}" \
+    || { echo "[run_live_task] profile 依赖同步失败。" >&2; exit 6; }
+
   DSH_BIN="${CLI_DIR}/node_modules/.bin/dsh"
 fi
 [[ -x "${DSH_BIN}" ]] || { echo "[run_live_task] 未找到 dsh CLI: ${DSH_BIN}" >&2; exit 6; }
@@ -215,7 +229,7 @@ DSH_HOME="${DSH_HOME_DIR}" \
   DEEPSEEK_API_KEY="${MODEL_API_KEY}" \
   DEEPSEEK_BASE_URL="${MODEL_BASE_URL}" \
   SHOPPING_BOOTSTRAP="${BOOTSTRAP_PATH}" \
-  SHOPPING_HARNESS_DIR="${REPO_ROOT}/harnesses/base" \
+  SHOPPING_HARNESS_DIR="${HARNESS_DIR}" \
   SHOPPING_RUN_ID="${RUN_ID}" \
   SHOPPING_TRAJECTORIES_DIR="${REPO_ROOT}/trajectories" \
   SHOPPING_MAX_STEPS="${MAX_STEPS}" \

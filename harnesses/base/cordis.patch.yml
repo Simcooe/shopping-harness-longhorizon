@@ -1,11 +1,62 @@
 # shopping-base profile patch（叠加在 bundle patches 之后）。
 #
-# 只设置冻结的最小购物 system prompt（persona）。patch 对目标行的
-# config 是整体替换而非合并（固定 DSH commit 语义），因此这里给出
-# persona 完整文本，与 harnesses/base/system-prompt.md（h0）保持一致。
+# 两个职责：
+#   1. 设置冻结的最小购物 system prompt（persona）。
+#   2. 禁用 DSH base 的所有 model-facing 默认工具 row，使模型可见工具面
+#      恰好只有 h0 的三个 shopping tools（shop_search / shop_click /
+#      shop_finish）。
+#
+# patch 对目标行的 config 是整体替换而非合并（固定 DSH commit 语义）；
+# `disabled: true` 是固定 DSH 支持的 row override（dsh-headless 对 hmr 即此
+# 用法）。只禁用该 row 的模型工具注册，不影响 DSH tools registry / agent
+# loop / headless runner / llm adapter / session / system prompt 等运行时
+# 基础设施。shopping 插件、ShopSimulator adapter 均不受影响。
+#
+# 被禁用的 18 个 row 与固定 DSH base bundle
+# （dsh/packages/bundle/base/cordis.patch.yml）的 model-facing tool row 一一对应。
+
 - id: system-prompt
   config:
     persona: >-
       你在 ShopSimulator 中执行用户给出的购物任务。
 
       任务文本由初始 user prompt 提供。基于当前工具结果和当前页面行动。只使用提供给你的工具。shop_click 的 target 必须来自当前页面上实际可见的可点击项。一次只调用一个工具。不猜测 goal、gold、reward 或任何隐藏信息。任务结束后停止。
+
+# ---- 禁用 DSH base 的所有 model-facing 默认工具（h0 只保留三个 shopping tools）----
+
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-report
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: plan-mode
+  disabled: true

@@ -56,17 +56,34 @@ plugin 的 tool-surface resolver / schema validator 是冻结基础设施。
 - **不得**修改 primitive（search/click/finish）到环境 action 的冻结映射；
 - **不得**修改 HTTP client、Reward、任务定义或轨迹审计逻辑。
 
-### 闭环（后续实现）
+### 闭环（Self-Harness loop v1）
 
 ```
-rollout → failure evidence → candidate patch → held-in/held-out gate → promoted harness lineage
+h0 baseline（held-in 0-7 / held-out 8-11）
+  → held-in failure evidence bundle
+  → 同一冻结模型 proposer
+  → 受限 candidate Harness
+  → held-in + held-out candidate evaluation
+  → 自动 gate
+  → promote 或 reject
+  → lineage / audit
 ```
 
-1. **rollout**：冻结 Agent 在 ShopSimulator 上执行购物任务（`trajectories/`）。
-2. **failure evidence**：从失败轨迹中提取结构化证据（`evaluation/`）。
-3. **candidate patch**：同一模型基于证据提出 patch，写入 `harnesses/candidates/`。
-4. **gate**：held-in / held-out 评测门槛（不使用 Final-200 Clean）。
-5. **promote**：通过门槛的 harness 晋升到 `harnesses/promoted/`，保留完整 lineage。
+1. **rollout / baseline**：冻结 Agent 在 ShopSimulator 上执行购物任务，
+   产出 held-in/held-out baseline（`evaluation/baselines/`）。
+2. **failure evidence**：从 held-in 失败轨迹提取脱敏、确定性、可审计的
+   evidence bundle（`evaluation/evidence/`）。
+3. **proposer**：同一冻结模型基于 held-in evidence 提出受限 candidate patch
+   （`scripts/propose_harness_candidate.ts`，显式 `--live`）。
+4. **candidate**：受限 JSON proposal 落成 `harnesses/candidates/<id>/`，
+   经 `loadHarness()` 校验。
+5. **gate**：candidate 跑 held-in + held-out，与 base baseline 逐项比较
+   （`scripts/evaluate_candidate.sh`，显式 `--live`）。
+6. **promote / lineage**：gate accepted 后晋升到 `harnesses/promoted/<id>/`，
+   保留完整 lineage（`scripts/promote_harness.ts`，无模型）。
+
+**held-out 只由 gate 读取，绝不进入 proposer / evidence。** Final-200 Clean
+始终不参与。
 
 ### 候选 patch 的四个硬性要求
 
@@ -199,7 +216,7 @@ bash scripts/run_h0_baseline_eval.sh --all --live
 - 结果写入 `evaluation/baselines/<baseline_run_id>/`（gitignore）：
   `manifest.json`（baseline 元信息 + task→run 映射）、`held-in.json` /
   `held-out.json`（split 结果严格分开）、`summary.json`（状态计数、
-  完成率、reward type 汇总——只在 evaluator 侧聚合）。
+  `environment_done_rate` 执行状态、reward type 汇总——只在 evaluator 侧聚合）。
 - 结果语义绝不伪造：DSH 在环境 terminal 前退出且无 evaluator record →
   `missing_evaluator_record`；runner 非零 → `runner_failure`；
   `shop_finish` 不算成功，environment done + evaluator 证据才算数。
@@ -207,6 +224,45 @@ bash scripts/run_h0_baseline_eval.sh --all --live
   绝不读取 held-out，它只用于 candidate gate。
 - baseline 结果只用于后续 failure evidence；当前仍未实现 Self-Harness
   proposer / candidate / gate；Final-200 Clean 不在本流程中。
+
+## held-in failure evidence bundle（h0 baseline → 下一阶段）
+
+闭环路线：
+
+```
+h0 baseline（held-in 0-7 / held-out 8-11）
+  → held-in failure evidence bundle（本阶段）
+  → future proposer（同一冻结模型，仅基于 held-in evidence 提出 harness 修改）
+  → future candidate gate（held-out 只做 gate）
+```
+
+```bash
+node scripts/build_failure_evidence.ts --baseline-dir evaluation/baselines/<baseline_run_id>
+# 默认输出 evaluation/evidence/<baseline_run_id>/{manifest.json,held-in-evidence.json}
+```
+
+要点：
+
+- **只使用 held-in**：evidence builder 只读 baseline 的 `manifest.json` /
+  `held-in.json` 及其引用的 actor trace / evaluator record；绝不读
+  `held-out.json`。传入 `--split held-out`、`--split all` 或 `--all` 会被明确拒绝。
+- **held-out 永远不进入 proposer / evidence**；它只留给未来的 candidate gate。
+- **确定性、脱敏、可审计**：聚类完全确定性（无 LLM、无随机），相同输入重复
+  构建输出稳定；evidence 只含 task_id / run_id / 文件相对路径 / 工具名与计数 /
+  guard 拒绝计数 / terminal reason / evaluator failure label 与 reward type 的
+  类别名 / 执行状态与统计数量，**绝不含** goal / gold / reward 数值 / purchase /
+  原始 instruction / observation / query / target / 工具参数 / 模型文本。
+- **成功/失败/未知只以 evaluator 证据为准**：environment done 是执行状态，
+  不等于成功；`shop_finish` 更不等于成功；成功 = evaluator
+  `reward_valid=true` 且 `reward_type ∈ {gold_purchase, valid_alternative_purchase}`；
+  失败 = evaluator 明确失败 label / reward type / reward_valid=false；
+  证据不足一律 `unknown`（绝不伪装 pass）。不完整 run（runner_failure /
+  missing_evaluator_record / evaluator record 损坏）归入 `infra_failure`，
+  不据此推断"任务失败原因"。
+- **evidence bundle 不等于 patch**：`candidate_editable_surfaces` 只是"可能
+  相关的可编辑面"白名单，不是 patch 建议，也不自动改 harness。
+- **当前仍未实现** proposer / candidate / gate / promotion；Final-200 Clean
+  不在本流程中。evidence builder 是冻结基础设施（`plugins/shopping/src/evidence/`）。
 
 ## 当前状态
 
@@ -225,6 +281,14 @@ bash scripts/run_h0_baseline_eval.sh --all --live
   离线装配检查：`pnpm --dir plugins/shopping check:dsh`
   （输出 registered=[shop_click, shop_finish, shop_search]）。
   机制与限制见 `docs/dsh-shopping-plugin.md`。
+- **shopping-only 模型工具面**：shopping-base profile 的
+  `harnesses/base/cordis.patch.yml` 用固定 DSH 的 `disabled: true` row
+  override 禁用 DSH base 的全部 model-facing 默认工具（bash/fs/todo/goal/
+  subagent/workflow/ralph/web_search/exit_plan_mode 等 18 个 row），使模型
+  请求中的 tool schema 恰好只有三个 h0 工具；DSH base 的运行时基础设施
+  （tools registry / agent loop / headless runner / llm adapter / session /
+  system prompt）不受影响。清单见
+  `plugins/shopping/src/harness/profile_tool_surface.ts`。
 - **双轨迹记录（Phase 6）**：
   - `trajectories/actor/<run_id>.jsonl` — **actor trace**：模型实际可见的
     证据（任务指令、工具调用、环境 action、脱敏页面观测、guard 拒绝、
@@ -243,12 +307,29 @@ bash scripts/run_h0_baseline_eval.sh --all --live
 - **h0 批量 baseline evaluator**：`scripts/run_h0_baseline_eval.sh`
   （显式 --live）批量运行 split，聚合脱敏结果到
   `evaluation/baselines/<baseline_run_id>/`（35 步正式配置）。
-- **本阶段仍不是 Self-Harness**：不根据 evaluator record 修改 harness，
-  不做失败挖掘/候选 patch/训练。
+- **held-in failure evidence bundle**：`scripts/build_failure_evidence.ts`
+  把一个 baseline 的 held-in 运行记录转换为脱敏、确定性、可审计的
+  failure evidence bundle（`evaluation/evidence/<baseline_run_id>/`），
+  作为未来同一冻结模型 proposer 的唯一失败输入；只读 held-in，绝不读
+  held-out，绝不使用 Final-200。
+- **Self-Harness loop v1 骨架**：proposer（`scripts/propose_harness_candidate.ts`，
+  显式 `--live`）、candidate materializer（`plugins/shopping/src/candidate/`，
+  proposal/audit/patch）、candidate 评测 + gate
+  （`scripts/evaluate_candidate.sh`，显式 `--live`）、promotion + lineage
+  （`scripts/promote_harness.ts`，无模型）。proposer/candidate/gate/promotion
+  默认都不调用模型；只有带 `--live` 的 proposer / evaluation 才可能调用模型。
+- **当前 h0 已有真实 held-in evidence**（`evaluation/evidence/
+  baseline-2026-08-21T12-52-23-022Z/`）；**held-out baseline 尚未运行**，
+  需要用户显式执行 `bash scripts/run_h0_baseline_eval.sh --split held-out --live`
+  后，candidate gate 才能比较 held-out（缺 base held-out baseline 时 gate 会
+  明确拒绝，绝不拿 held-in 代替 held-out）。
+- **执行一致性**：DSH 运行时 persona 来自 `$SHOPPING_HARNESS_DIR/system-prompt.md`
+  （经 `.live` effective profile patch 生成），actor 的 model selection 绑定
+  `MODEL_NAME`；`SHOPPING_HARNESS_DIR` 可由调用方覆盖（默认 base），candidate
+  修改 system-prompt.md 后下一次运行会触发 profile 同步。
 - live runner 已就绪：用户填写 `.env` 模型配置并显式 `--live` 后，
   `bash scripts/run_live_task.sh --task-id 0 --live` 运行单条真实任务
   （见上节）。本仓库未提交任何 `.env`，未代为执行模型调用。
-- Self-Harness（候选 patch 生成与 gate）：未实现，见各目录 README。
 
 ## 本地开发流程
 

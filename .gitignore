@@ -24,6 +24,15 @@ evaluation/runs/
 evaluation/baselines/
 **/evaluation/runs/
 
+# failure evidence bundle（运行产物不入库）
+evaluation/evidence/
+
+# candidate / promoted harness（运行产物不入库；README 保留）
+harnesses/candidates/*
+!harnesses/candidates/README.md
+harnesses/promoted/*
+!harnesses/promoted/README.md
+
 # live runner 运行时目录（DSH_HOME/CLI/profile 安装；绝不入库）
 .live/
 

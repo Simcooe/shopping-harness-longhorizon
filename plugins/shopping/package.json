@@ -30,6 +30,10 @@
       "types": "./lib/rollout/index.d.ts",
       "default": "./lib/rollout/index.js"
     },
+    "./evidence": {
+      "types": "./lib/evidence/index.d.ts",
+      "default": "./lib/evidence/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -37,7 +41,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts",
-    "test:all": "node --test ../../tests/harness/surface.test.ts ../../tests/harness/benchmark.test.ts ../../tests/baseline/baseline_batch.test.ts ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts ../../tests/tools/actions_schemas.test.ts ../../tests/tools/register.test.ts ../../tests/tools/max_steps.test.ts ../../tests/observation/project.test.ts ../../tests/rollout/recorder.test.ts ../../tests/rollout/task_source.test.ts ../../tests/rollout/evaluator_record.test.ts ../../tests/rollout/bootstrap.test.ts ../../tests/rollout/bootstrap_lifecycle.test.ts ../../tests/rollout/live_config.test.ts",
+    "test:all": "node --test ../../tests/harness/surface.test.ts ../../tests/harness/benchmark.test.ts ../../tests/harness/profile_tool_surface.test.ts ../../tests/baseline/baseline_batch.test.ts ../../tests/evidence/evidence_build.test.ts ../../tests/live/sync_profile.test.ts ../../tests/selfharness/candidate.test.ts ../../tests/selfharness/candidate_evaluator.test.ts ../../tests/selfharness/gate.test.ts ../../tests/selfharness/profile_patch.test.ts ../../tests/selfharness/proposer.test.ts ../../tests/environment/client.test.ts ../../tests/environment/session.test.ts ../../tests/tools/register.test.ts ../../tests/tools/max_steps.test.ts ../../tests/observation/project.test.ts ../../tests/rollout/recorder.test.ts ../../tests/rollout/task_source.test.ts ../../tests/rollout/evaluator_record.test.ts ../../tests/rollout/bootstrap.test.ts ../../tests/rollout/bootstrap_lifecycle.test.ts ../../tests/rollout/live_config.test.ts",
     "check:dsh": "node scripts/check_dsh_shopping_plugin.ts",
     "smoke-shopping-adapter": "node ../../scripts/smoke_shopping_adapter.ts"
   },
@@ -46,9 +50,11 @@
       "patch": "./cordis.patch.yml"
     }
   },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.7.0",
-    "yaml": "^2.9.0"
+    "typescript": "^5.7.0"
   }
 }

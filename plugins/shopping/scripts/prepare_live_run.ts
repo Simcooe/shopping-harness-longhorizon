@@ -55,7 +55,8 @@ try {
 } catch {
   fail(`无法读取 live-task 配置: ${configPath}`);
 }
-const harness = loadHarness(join(REPO_ROOT, "harnesses", "base"));
+const harnessDir = process.env["SHOPPING_HARNESS_DIR"] ?? join(REPO_ROOT, "harnesses", "base");
+const harness = loadHarness(harnessDir);
 const surfaceToolNames = harness.toolSurface.tools.map((tool) => tool.name);
 const config = validateLiveTaskConfig(parseYaml(configText), surfaceToolNames);
 
@@ -73,7 +74,7 @@ if (missing.length > 0) {
 const metadata = buildRunMetadata({
   runId: makeRunId(),
   taskId,
-  harnessVersion: "shopping-base@0.0.0",
+  harnessVersion: `${harness.harnessId}@${harness.version}`,
   modelName: String(process.env["MODEL_NAME"] ?? "").trim(),
   modelBaseUrl: String(process.env["MODEL_BASE_URL"] ?? "").trim(),
   config,

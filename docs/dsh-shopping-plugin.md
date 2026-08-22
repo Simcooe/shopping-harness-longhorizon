@@ -39,6 +39,36 @@ apply(ctx)                           loadHarness(SHOPPING_HARNESS_DIR ?? harness
                                      ctx.tools.register(tool surface 定义的工具)
 ```
 
+## shopping-only model tool surface（禁用 DSH base 默认工具）
+
+shopping-base profile 是 **shopping-only 的模型可见工具面**：DSH base 仍然
+提供全部运行时基础设施（tools registry、agent loop、headless runner、llm
+adapter、session、system prompt、subprocess/sandbox 等），但其 **model-facing
+默认工具**（bash、fs 读写、todo、goal、subagent、workflow、ralph、web_search、
+exit_plan_mode 等）**不向模型暴露**。
+
+实现方式：`harnesses/base/cordis.patch.yml` 用固定 DSH 支持的
+`disabled: true` row override（与 dsh-headless 对 `hmr` 的用法一致）逐项禁用
+DSH base 的所有 model-facing tool row。被禁用的 18 个 row 与固定 DSH base
+bundle（`dsh/packages/bundle/base/cordis.patch.yml`）的 model-facing tool row
+一一对应，清单见 `plugins/shopping/src/harness/profile_tool_surface.ts`
+（`DEFAULT_MODEL_FACING_TOOL_ROWS`，含不以 `tool-` 开头的 `plan-mode`）。
+
+禁用只作用于这些 row 的模型工具注册，**不**影响 DSH tools registry 本身、
+agent loop、headless runner、llm adapter、session、system prompt、shopping
+plugin 或 ShopSimulator adapter。结果是模型请求中的 tool schema 恰好只有：
+
+```
+shop_search
+shop_click
+shop_finish
+```
+
+原因：h0 要严格控制工具面，并避免 provider（如 DeepSeek V4 Pro）对无关
+默认工具 schema 的兼容性问题（例如 `get_goal` 的空参数 schema 会被拒）。
+离线校验：`pnpm --dir plugins/shopping check:dsh`（断言 profile patch 已禁用
+全部默认 model-facing tool row，且 h0 注册的工具恰好三个）。
+
 ## 工具注册 API
 
 依据：`dsh/packages/core/tools/src/index.ts`（`ToolRuntime`、

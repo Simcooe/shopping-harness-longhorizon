@@ -48,6 +48,7 @@ interface TaskOutcome {
   evaluator_present: boolean;
   environment_done: boolean | null;
   reward_type: string | null;
+  reward_valid: boolean | null;
   status: "environment_done" | "terminated_without_done"
     | "missing_evaluator_record" | "runner_failure";
 }
@@ -64,6 +65,8 @@ const manifestPath = manifestIdx >= 0
   : join(REPO_ROOT, "configs", "evaluation", "development-v1.yml");
 const runIdIdx = argv.indexOf("--baseline-run-id");
 const baselineRunIdOverride = runIdIdx >= 0 ? argv[runIdIdx + 1] : undefined;
+const outDirIdx = argv.indexOf("--out-dir");
+const outDirOverride = outDirIdx >= 0 ? argv[outDirIdx + 1] : undefined;
 
 let manifest: BenchmarkManifest;
 try {
@@ -90,7 +93,9 @@ const baselineRunId = baselineRunIdOverride ?? `baseline-${timestamp}`;
 if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(baselineRunId)) {
   fail(`baseline_run_id 非法: ${baselineRunId}`);
 }
-const baselineDir = join(REPO_ROOT, "evaluation", "baselines", baselineRunId);
+const baselineDir = outDirOverride
+  ? (outDirOverride.startsWith("/") ? outDirOverride : join(REPO_ROOT, outDirOverride))
+  : join(REPO_ROOT, "evaluation", "baselines", baselineRunId);
 mkdirSync(baselineDir, { recursive: true });
 
 function parseRunId(stdout: string): string | null {
@@ -99,24 +104,58 @@ function parseRunId(stdout: string): string | null {
 }
 
 function readEvaluatorRecord(runId: string): {
-  present: boolean; done: boolean | null; rewardType: string | null;
+  present: boolean; done: boolean | null; rewardType: string | null; rewardValid: boolean | null;
 } {
   const recordPath = join(REPO_ROOT, "evaluation", "runs", `${runId}.json`);
   if (!existsSync(recordPath)) {
-    return { present: false, done: null, rewardType: null };
+    return { present: false, done: null, rewardType: null, rewardValid: null };
   }
   try {
     const record = JSON.parse(readFileSync(recordPath, "utf-8")) as Record<string, unknown>;
     const terminal = record["environment_terminal"] as Record<string, unknown> | undefined;
     const rewardTypeRaw = record["reward_type"];
+    const rewardValidRaw = record["reward_valid"];
     return {
       present: true,
       done: typeof terminal?.["done"] === "boolean" ? terminal["done"] : null,
       rewardType: typeof rewardTypeRaw === "string" ? rewardTypeRaw : null,
+      rewardValid: typeof rewardValidRaw === "boolean" ? rewardValidRaw : null,
     };
   } catch {
-    return { present: false, done: null, rewardType: null };
+    return { present: false, done: null, rewardType: null, rewardValid: null };
   }
+}
+
+const SECRET_KEY_PATTERN = /(api[_-]?key|token|secret|password|authorization|credential|private[_-]?key)/i;
+const MAX_STDERR_TAIL_CHARS = 4000;
+
+/**
+ * 脱敏并截取 stderr 尾部（只用于当前终端，绝不写入 baseline JSON）。
+ * 仅按值替换当前进程环境里疑似密钥的变量（API key/token/secret 等），
+ * 不改动其它文本；输出长度截断到尾部。
+ */
+function sanitizeStderrTail(
+  text: string,
+  env: Record<string, string | undefined>,
+): string {
+  let out = text;
+  const seen = new Set<string>();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined || value.length === 0) {
+      continue;
+    }
+    if (!SECRET_KEY_PATTERN.test(key)) {
+      continue;
+    }
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    out = out.split(value).join("<redacted>");
+  }
+  return out.length > MAX_STDERR_TAIL_CHARS
+    ? out.slice(-MAX_STDERR_TAIL_CHARS)
+    : out;
 }
 
 function runTask(taskId: number, split: string): TaskOutcome {
@@ -147,6 +186,7 @@ function runTask(taskId: number, split: string): TaskOutcome {
     evaluator_present: false,
     environment_done: null,
     reward_type: null,
+    reward_valid: null,
     status: "runner_failure",
   };
 
@@ -159,6 +199,7 @@ function runTask(taskId: number, split: string): TaskOutcome {
     outcome.evaluator_present = evaluator.present;
     outcome.environment_done = evaluator.done;
     outcome.reward_type = evaluator.rewardType;
+    outcome.reward_valid = evaluator.rewardValid;
     if (evaluator.present) {
       outcome.evaluator_record_rel = relative(
         REPO_ROOT,
@@ -178,6 +219,18 @@ function runTask(taskId: number, split: string): TaskOutcome {
     // runner 声称成功但没给出 run_id：按 infra 异常处理，不伪造结果
     outcome.status = "runner_failure";
   }
+
+  // 失败可观察性：子 runner 失败时，把脱敏后的 stderr 尾部打到当前终端。
+  // 原始 stderr 不写入 baseline JSON（TaskOutcome 不含 stderr 字段）。
+  if (outcome.status === "runner_failure") {
+    const tail = sanitizeStderrTail(child.stderr ?? "", process.env).trim();
+    if (tail.length > 0) {
+      console.error(
+        `[baseline_orchestrator] task ${taskId} 失败，stderr 尾部（脱敏）:\n${tail}`,
+      );
+    }
+  }
+
   return outcome;
 }
 
@@ -251,7 +304,7 @@ const summary = {
   evaluation_config: relative(REPO_ROOT, evalConfigPath),
   total_tasks: allOutcomes.length,
   status_counts: countByStatus(allOutcomes),
-  completion_rate: allOutcomes.length > 0
+  environment_done_rate: allOutcomes.length > 0
     ? allOutcomes.filter((outcome) => outcome.status === "environment_done").length
       / allOutcomes.length
     : null,
@@ -259,7 +312,8 @@ const summary = {
   runner_failure_count: allOutcomes.filter((outcome) => outcome.status === "runner_failure").length,
   evaluator_aggregate: { reward_type_counts: rewardTypeCounts },
   semantics: {
-    pass_definition: "environment done 且存在 evaluator 证据（shop_finish 不算成功）",
+    environment_done_rate: "environment done 是执行状态，不是任务成功率；shop_finish 更不等于成功",
+    success_definition: "evaluator reward_valid=true 且 reward_type ∈ {gold_purchase, valid_alternative_purchase}（evaluator 侧证据）",
     missing_evaluator_record: "DSH 在环境 terminal 前退出；不伪造 pass/fail",
     held_out_isolation: "held-out 结果单独文件；后续 proposer 不得读取",
   },
@@ -295,6 +349,6 @@ writeFileSync(join(baselineDir, "manifest.json"), `${JSON.stringify(baselineMani
 console.error(`[baseline_orchestrator] 结果目录: ${relative(REPO_ROOT, baselineDir)}`);
 console.error(
   `[baseline_orchestrator] 汇总: ${JSON.stringify(summary.status_counts)} `
-  + `completion_rate=${summary.completion_rate?.toFixed(3) ?? "n/a"}`,
+  + `environment_done_rate=${summary.environment_done_rate?.toFixed(3) ?? "n/a"}`,
 );
 process.exit(0);
