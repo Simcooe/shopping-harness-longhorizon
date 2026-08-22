@@ -52,7 +52,12 @@ function writeBaseline(
   split: "held-in" | "held-out",
   taskIds: number[],
   base: { harnessId: string; version: string; digest: string },
-  overrides: { split?: string; harnessId?: string; digest?: string } = {},
+  overrides: {
+    split?: string;
+    harnessId?: string;
+    digest?: string;
+    outcomes?: Record<string, unknown>[];
+  } = {},
 ): string {
   const dir = join(repoRoot, "evaluation", "baselines", id);
   mkdirSync(dir, { recursive: true });
@@ -62,7 +67,7 @@ function writeBaseline(
       baseline_run_id: id,
       benchmark_id: "shopping-development-v1",
       split: overrides.split ?? split,
-      outcomes: taskIds.map(outcome),
+      outcomes: overrides.outcomes ?? taskIds.map(outcome),
     }, null, 2)}\n`,
     "utf-8",
   );
@@ -217,6 +222,95 @@ test("preflight：合法 base held-in + held-out baseline → 通过", () => {
   }
 });
 
+test("preflight：base held-in outcome 缺 reward_valid → 抛错", () => {
+  const repo = makeRepo();
+  try {
+    writeBaseline(repo.root, "b-in", "held-in", [0, 1, 2, 3, 4, 5, 6, 7], repo.base, {
+      outcomes: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ task_id: i, status: "environment_done", reward_type: "gold_purchase" })),
+    });
+    writeBaseline(repo.root, "b-out", "held-out", [8, 9, 10, 11], repo.base);
+    assert.throws(
+      () => preflightBaseBaselines({
+        repoRoot: repo.root, baseHarnessDir: REAL_BASE,
+        baselineHeldInId: "b-in", baselineHeldOutId: "b-out",
+      }),
+      /reward_valid/,
+    );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("preflight：base held-out outcome 缺 reward_valid → 抛错", () => {
+  const repo = makeRepo();
+  try {
+    writeBaseline(repo.root, "b-in", "held-in", [0, 1, 2, 3, 4, 5, 6, 7], repo.base);
+    writeBaseline(repo.root, "b-out", "held-out", [8, 9, 10, 11], repo.base, {
+      outcomes: [8, 9, 10, 11].map((i) => ({ task_id: i, status: "environment_done", reward_type: "gold_purchase" })),
+    });
+    assert.throws(
+      () => preflightBaseBaselines({
+        repoRoot: repo.root, baseHarnessDir: REAL_BASE,
+        baselineHeldInId: "b-in", baselineHeldOutId: "b-out",
+      }),
+      /reward_valid/,
+    );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("preflight：reward_valid 为 null/字符串/undefined 全部拒绝", () => {
+  for (const bad of [null, "true", undefined]) {
+    const repo = makeRepo();
+    try {
+      const outcomes = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+        task_id: i, status: "environment_done", reward_type: "gold_purchase", reward_valid: bad,
+      }));
+      writeBaseline(repo.root, "b-in", "held-in", [0, 1, 2, 3, 4, 5, 6, 7], repo.base, { outcomes });
+      writeBaseline(repo.root, "b-out", "held-out", [8, 9, 10, 11], repo.base);
+      assert.throws(
+        () => preflightBaseBaselines({
+          repoRoot: repo.root, baseHarnessDir: REAL_BASE,
+          baselineHeldInId: "b-in", baselineHeldOutId: "b-out",
+        }),
+        /reward_valid/,
+        `reward_valid=${String(bad)} 应被拒绝`,
+      );
+    } finally {
+      rmSync(repo.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("preflight：reward_valid 为 true/false 的完整 baseline 通过", () => {
+  const repo = makeRepo();
+  try {
+    writeBaseline(repo.root, "b-in", "held-in", [0, 1, 2, 3, 4, 5, 6, 7], repo.base, {
+      outcomes: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+        task_id: i, status: "environment_done",
+        reward_type: i < 3 ? "gold_purchase" : "max_steps",
+        reward_valid: i < 3,
+      })),
+    });
+    writeBaseline(repo.root, "b-out", "held-out", [8, 9, 10, 11], repo.base, {
+      outcomes: [8, 9, 10, 11].map((i) => ({
+        task_id: i, status: "environment_done",
+        reward_type: i < 9 ? "gold_purchase" : "wrong_purchase",
+        reward_valid: i < 9,
+      })),
+    });
+    const result = preflightBaseBaselines({
+      repoRoot: repo.root, baseHarnessDir: REAL_BASE,
+      baselineHeldInId: "b-in", baselineHeldOutId: "b-out",
+    });
+    assert.equal(result.baseHeldIn.length, 8);
+    assert.equal(result.baseHeldOut.length, 4);
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
 function makeFakeOrchestrator(dir: string, sentinel: string): string {
   const path = join(dir, "fake-orchestrator.js");
   writeFileSync(path, `const fs = require("fs");
@@ -328,6 +422,51 @@ test("spawn：合法 base held-in + held-out → 进入 rollout，fake orchestra
     // 会进入 rollout（sentinel 被写）；之后 gate 可能 reject（candidate 结果为空），退出码可为非零
     assert.ok(existsSync(sentinel), "fake orchestrator 应被调用");
     void result;
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+function makeIncompleteOrchestrator(dir: string, sentinel: string): string {
+  const path = join(dir, "fake-orchestrator-incomplete.js");
+  writeFileSync(path, `const fs = require("fs");
+const path = require("path");
+fs.writeFileSync(process.env.FAKE_SENTINEL, "called", "utf-8");
+const outDir = process.env.SHOPPING_EVAL_OUT_DIR;
+fs.mkdirSync(outDir, { recursive: true });
+const heldIn = Array.from({ length: 8 }, (_, i) => ({ task_id: i, status: "environment_done", reward_type: "gold_purchase" }));
+const heldOut = Array.from({ length: 4 }, (_, i) => ({ task_id: 8 + i, status: "environment_done", reward_type: "gold_purchase" }));
+fs.writeFileSync(path.join(outDir, "held-in.json"), JSON.stringify({ split: "held-in", outcomes: heldIn }));
+fs.writeFileSync(path.join(outDir, "held-out.json"), JSON.stringify({ split: "held-out", outcomes: heldOut }));
+`, "utf-8");
+  return path;
+}
+
+test("spawn：candidate rollout 输出缺 reward_valid → gate rejected + schema_complete=false", () => {
+  const repo = makeRepo();
+  try {
+    writeBaseline(repo.root, "b-in", "held-in", [0, 1, 2, 3, 4, 5, 6, 7], repo.base);
+    writeBaseline(repo.root, "b-out", "held-out", [8, 9, 10, 11], repo.base);
+    makeCandidate(repo.root, "cand-ok");
+    const sentinel = join(repo.root, "sentinel.txt");
+    const fake = makeIncompleteOrchestrator(repo.root, sentinel);
+
+    const result = spawnEvaluator({
+      repoRoot: repo.root,
+      candidateId: "cand-ok",
+      baselineHeldInId: "b-in",
+      baselineHeldOutId: "b-out",
+      fakeOrchestrator: fake,
+      sentinel,
+    });
+    assert.ok(existsSync(sentinel), "fake orchestrator 应被调用");
+    assert.notEqual(result.status, 0, "candidate outcome 不完整应 reject（非零退出）");
+    const gatePath = join(repo.root, "evaluation", "candidates", "cand-ok", "gate.json");
+    assert.ok(existsSync(gatePath), "应写 gate.json");
+    const gate = JSON.parse(readFileSync(gatePath, "utf-8")) as Record<string, unknown>;
+    assert.equal(gate["decision"], "rejected");
+    assert.equal(gate["candidate_outcome_schema_complete"], false);
+    assert.equal(gate["candidate_held_in_success"], null);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
   }

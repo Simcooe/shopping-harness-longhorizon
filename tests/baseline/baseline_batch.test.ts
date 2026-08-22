@@ -203,6 +203,12 @@ test("batch 生命周期：独立 run_id、单次 reset/release、失败不阻�
     // held-out 文件带隔离声明
     assert.match(String(heldOut["usage_note"]), /绝不提供给 proposer/);
 
+    // reward_valid 字段写入（gate comparison 依赖该 evaluator-grounded 字段；
+    // baseline_orchestrator 对 boolean true/false 原样保留，缺失才为 null）
+    for (const outcome of [...heldInOutcomes, ...heldOutOutcomes]) {
+      assert.ok("reward_valid" in outcome, "outcome 应含 reward_valid 字段");
+    }
+
     // 汇总统计与 35 步记录
     const counts = summary["status_counts"] as Record<string, number>;
     assert.equal(counts["runner_failure"], 1);

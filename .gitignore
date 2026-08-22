@@ -27,6 +27,9 @@ evaluation/baselines/
 # failure evidence bundle（运行产物不入库）
 evaluation/evidence/
 
+# candidate evaluation 结果（运行产物不入库）
+evaluation/candidates/
+
 # candidate / promoted harness（运行产物不入库；README 保留）
 harnesses/candidates/*
 !harnesses/candidates/README.md

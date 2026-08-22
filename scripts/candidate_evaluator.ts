@@ -25,6 +25,7 @@ import { loadBenchmarkManifest, type BenchmarkManifest } from "../plugins/shoppi
 import { loadHarness } from "../plugins/shopping/src/harness/surface.ts";
 import { assertSafeCandidateId } from "../plugins/shopping/src/candidate/schema.ts";
 import {
+  countSuccess,
   evaluateGateV1,
   type EvalOutcome,
   type GateDecision,
@@ -85,21 +86,68 @@ export function resolveCandidateDir(repoRoot: string, candidateId: string): stri
   return join(repoRoot, "harnesses", "candidates", candidateId);
 }
 
-export function readOutcomes(path: string): EvalOutcome[] {
-  if (!existsSync(path)) {
-    return [];
+export type OutcomeValidation =
+  | { ok: true; outcomes: EvalOutcome[] }
+  | { ok: false; reason: string };
+
+/**
+ * 严格校验 outcome 完整性（baseline schema 完整才可用于 gate comparison）。
+ * 缺失 evaluator-grounded reward_valid（null/undefined/字符串等）一律判不完整。
+ */
+export function parseOutcomesStrict(
+  splitJson: Record<string, unknown>,
+  label: string,
+  expectedTaskIds: readonly number[],
+): OutcomeValidation {
+  const outcomesRaw = splitJson["outcomes"];
+  if (!Array.isArray(outcomesRaw) || outcomesRaw.length === 0) {
+    return { ok: false, reason: `${label} outcomes 必须是非空数组` };
   }
-  const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
-  const raw = data["outcomes"];
-  if (!Array.isArray(raw)) {
-    return [];
+  const seen = new Set<number>();
+  const outcomes: EvalOutcome[] = [];
+  for (const [index, entry] of outcomesRaw.entries()) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return { ok: false, reason: `${label} outcome[${index}] 必须是对象` };
+    }
+    const record = entry as Record<string, unknown>;
+
+    const taskId = record["task_id"];
+    if (typeof taskId !== "number" || !Number.isInteger(taskId)) {
+      return { ok: false, reason: `${label} outcome[${index}].task_id 必须是整数` };
+    }
+    const status = record["status"];
+    if (typeof status !== "string" || status.length === 0) {
+      return { ok: false, reason: `${label} outcome[${index}].status 必须是非空字符串` };
+    }
+    const rewardType = record["reward_type"];
+    if (rewardType !== null && rewardType !== undefined && typeof rewardType !== "string") {
+      return { ok: false, reason: `${label} outcome[${index}].reward_type 必须是 string 或 null` };
+    }
+    const rewardValid = record["reward_valid"];
+    if (typeof rewardValid !== "boolean") {
+      return {
+        ok: false,
+        reason: `${label} outcome[${index}].reward_valid 必须是 boolean（baseline schema 不完整，缺 evaluator-grounded reward_valid）`,
+      };
+    }
+    if (seen.has(taskId)) {
+      return { ok: false, reason: `${label} outcome 含重复 task_id: ${taskId}` };
+    }
+    seen.add(taskId);
+    outcomes.push({
+      task_id: taskId,
+      status,
+      reward_valid: rewardValid,
+      reward_type: rewardType === undefined ? null : rewardType,
+    });
   }
-  return (raw as Array<Record<string, unknown>>).map((entry) => ({
-    task_id: typeof entry["task_id"] === "number" ? entry["task_id"] : -1,
-    status: typeof entry["status"] === "string" ? entry["status"] : "unknown",
-    reward_valid: typeof entry["reward_valid"] === "boolean" ? entry["reward_valid"] : null,
-    reward_type: typeof entry["reward_type"] === "string" ? entry["reward_type"] : null,
-  }));
+  if (!sameTaskSet([...seen], expectedTaskIds)) {
+    return {
+      ok: false,
+      reason: `${label} outcome task 集合（${[...seen].sort((a, b) => a - b).join(",")}）与 development-v1 manifest 不一致`,
+    };
+  }
+  return { ok: true, outcomes };
 }
 
 function readBaselineJson(path: string, label: string, helpCommand: string): Record<string, unknown> {
@@ -192,14 +240,11 @@ export function preflightBaseBaselines(opts: {
         `base ${expectedSplit} baseline 的 tool_surface_digest（${String(manifest["tool_surface_digest"])}）与当前 base harness（${base.toolSurfaceDigest}）不一致`,
       );
     }
-    const outcomes = readOutcomes(join(baselineDir, splitFile));
-    const taskIds = outcomes.map((entry) => entry.task_id);
-    if (!sameTaskSet(taskIds, expectedTaskIds)) {
-      throw new PreflightError(
-        `base ${expectedSplit} baseline 的 task 集合（${[...taskIds].sort((a, b) => a - b).join(",")}）与 development-v1 manifest 不一致`,
-      );
+    const validation = parseOutcomesStrict(splitJson, `base ${expectedSplit}`, expectedTaskIds);
+    if (!validation.ok) {
+      throw new PreflightError(`${validation.reason}。请重新运行: ${helpCommand}`);
     }
-    return outcomes;
+    return validation.outcomes;
   };
 
   const baseHeldIn = validateSplit(
@@ -261,6 +306,39 @@ export function runCandidateRollout(opts: RolloutOptions): void {
   if (result.status !== 0) {
     throw new Error(`candidate 评测失败（exit=${String(result.status)}）`);
   }
+}
+
+interface CandidateOutcomesResult {
+  ok: boolean;
+  heldIn: EvalOutcome[];
+  heldOut: EvalOutcome[];
+  reason: string;
+}
+
+/** 读 candidate rollout 产物并严格校验完整性（缺 reward_valid → 不完整）。 */
+export function readCandidateOutcomes(outDir: string, benchmark: BenchmarkManifest): CandidateOutcomesResult {
+  const heldInPath = join(outDir, "held-in.json");
+  const heldOutPath = join(outDir, "held-out.json");
+  if (!existsSync(heldInPath) || !existsSync(heldOutPath)) {
+    return { ok: false, heldIn: [], heldOut: [], reason: "candidate 评测产物缺失（held-in.json / held-out.json）" };
+  }
+  let heldInJson: unknown;
+  let heldOutJson: unknown;
+  try {
+    heldInJson = JSON.parse(readFileSync(heldInPath, "utf-8"));
+    heldOutJson = JSON.parse(readFileSync(heldOutPath, "utf-8"));
+  } catch (cause) {
+    return { ok: false, heldIn: [], heldOut: [], reason: `candidate 评测产物无法解析（${cause instanceof Error ? cause.message : String(cause)}）` };
+  }
+  const heldInVal = parseOutcomesStrict(heldInJson as Record<string, unknown>, "candidate held-in", benchmark.heldInTaskIds);
+  if (!heldInVal.ok) {
+    return { ok: false, heldIn: [], heldOut: [], reason: heldInVal.reason };
+  }
+  const heldOutVal = parseOutcomesStrict(heldOutJson as Record<string, unknown>, "candidate held-out", benchmark.heldOutTaskIds);
+  if (!heldOutVal.ok) {
+    return { ok: false, heldIn: [], heldOut: [], reason: heldOutVal.reason };
+  }
+  return { ok: true, heldIn: heldInVal.outcomes, heldOut: heldOutVal.outcomes, reason: "" };
 }
 
 function main(): void {
@@ -331,16 +409,41 @@ function main(): void {
     return;
   }
 
-  // 4. 读 candidate 与 base 的 outcome
-  const candidateHeldIn = readOutcomes(join(candidateOutDir, "held-in.json"));
-  const candidateHeldOut = readOutcomes(join(candidateOutDir, "held-out.json"));
+  // 4. 读并严格校验 candidate outcome（缺 reward_valid → rejected，不当 0 成功）
+  const benchmark = loadBenchmarkManifest(manifestPath);
+  const candidateOutcomes = readCandidateOutcomes(candidateOutDir, benchmark);
+  const modelIdentity = {
+    model_name: String(process.env["MODEL_NAME"] ?? "").trim(),
+    model_base_url: String(process.env["MODEL_BASE_URL"] ?? "").trim(),
+  };
+
+  if (!candidateOutcomes.ok) {
+    writeFileSync(
+      join(candidateOutDir, "gate.json"),
+      `${JSON.stringify({
+        decision: "rejected",
+        candidate_outcome_schema_complete: false,
+        reason: candidateOutcomes.reason,
+        base_held_in_success: countSuccess(preflight.baseHeldIn),
+        base_held_out_success: countSuccess(preflight.baseHeldOut),
+        candidate_held_in_success: null,
+        candidate_held_out_success: null,
+        rules: [],
+        tool_surface_digest: toolSurfaceDigest,
+        model_identity: modelIdentity,
+      }, null, 2)}\n`,
+      "utf-8",
+    );
+    console.error(`[candidate_evaluator] gate decision=rejected（candidate outcome 不完整）candidate=${args.candidateId}`);
+    process.exit(1);
+  }
 
   // 5. gate
   const decision: GateDecision = evaluateGateV1({
     baseHeldIn: preflight.baseHeldIn,
     baseHeldOut: preflight.baseHeldOut,
-    candidateHeldIn,
-    candidateHeldOut,
+    candidateHeldIn: candidateOutcomes.heldIn,
+    candidateHeldOut: candidateOutcomes.heldOut,
     editedFiles,
     candidateValidated,
   });
@@ -349,11 +452,9 @@ function main(): void {
     join(candidateOutDir, "gate.json"),
     `${JSON.stringify({
       ...decision,
+      candidate_outcome_schema_complete: true,
       tool_surface_digest: toolSurfaceDigest,
-      model_identity: {
-        model_name: String(process.env["MODEL_NAME"] ?? "").trim(),
-        model_base_url: String(process.env["MODEL_BASE_URL"] ?? "").trim(),
-      },
+      model_identity: modelIdentity,
     }, null, 2)}\n`,
     "utf-8",
   );
